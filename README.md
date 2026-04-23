@@ -2,6 +2,10 @@
 
 Low-latency cross-exchange price arbitrage scanner.
 
+> 📘 **Подробное руководство на русском:** [GUIDE.ru.md](GUIDE.ru.md) —
+> установка, все поля `settings.yaml`, анализ сигналов, paper trading,
+> Telegram-интеграция, troubleshooting и roadmap.
+
 Built around three decisions that together keep the hot path as short as
 possible:
 
