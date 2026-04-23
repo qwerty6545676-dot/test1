@@ -1,3 +1,8 @@
 -r requirements.txt
 pytest>=8.0
 pytest-asyncio>=0.23
+# grpcio-tools ships ``protoc`` and is only required when regenerating the
+# MEXC ``*_pb2.py`` stubs from the .proto sources in ``proto/mexc/``:
+#   python -m grpc_tools.protoc -I proto/mexc \
+#       --python_out=arbitrage/mexc_proto proto/mexc/*.proto
+grpcio-tools>=1.60

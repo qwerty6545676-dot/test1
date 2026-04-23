@@ -24,7 +24,11 @@ possible:
 | -------- | ------ |
 | Binance spot | implemented (`bookTicker`) |
 | Bybit spot | implemented (`orderbook.1` + snapshot/delta state) |
-| Gate.io / Bitget / KuCoin / BingX / MEXC | stubs — `NotImplementedError` |
+| Gate.io spot | implemented (`spot.book_ticker` + 10s ping) |
+| Bitget spot | implemented (`books1` + 25s ping) |
+| KuCoin spot | implemented (REST-token bootstrap + `/market/ticker`) |
+| BingX spot | implemented (gzip + `@bookTicker` + ping/pong replies) |
+| MEXC spot | implemented (Protobuf + `aggre.bookTicker@100ms`) |
 
 ## Layout
 
@@ -35,11 +39,18 @@ arbitrage/
 ├── normalizer.py    # Tick struct (msgspec.Struct, gc=False) + validator
 ├── heartbeat.py     # evict stale per-exchange entries
 ├── comparator.py    # find_arbitrage + check_and_signal
+├── mexc_proto/      # generated Protobuf stubs for MEXC
 └── exchanges/
-    ├── _common.py   # backoff helper (with jitter)
-    ├── binance.py   # picows listener
-    ├── bybit.py     # picows listener + snapshot/delta merge + 18s ping
-    └── gateio.py / bitget.py / kucoin.py / bingx.py / mexc.py  (TODO)
+    ├── _common.py   # backoff helper (with jitter) + symbol normalization
+    ├── binance.py   # bookTicker
+    ├── bybit.py     # orderbook.1 + snapshot/delta merge + 18s ping
+    ├── gateio.py    # spot.book_ticker + 10s ping
+    ├── bitget.py    # books1 + 25s ping
+    ├── kucoin.py    # REST bullet-public + /market/ticker
+    ├── bingx.py     # gzip-framed @bookTicker + ping/pong reply
+    └── mexc.py      # Protobuf aggre.bookTicker@100ms
+
+proto/mexc/          # source .proto files for MEXC (regenerate with protoc)
 ```
 
 ## Install
@@ -87,6 +98,24 @@ All constants live in [`arbitrage/config.py`](arbitrage/config.py):
 - **`orderbook.1` deltas** on Bybit can omit a side. The listener
   keeps a per-symbol merged state and only emits a tick once both
   sides are known.
+- **Gate.io** closes idle connections silently (no error frame) —
+  we send `{"channel":"spot.ping"}` every 10s to stay alive.
+- **KuCoin** requires a REST `POST /api/v1/bullet-public` before
+  every WS connect to obtain a one-shot token and the actual
+  endpoint; the token is regenerated on each reconnect and a fresh
+  `connectId` (`uuid4`) is used every time.
+- **BingX** gzips every server frame, even the pings, and the ping
+  frame is `{"ping":"<uuid>","time":...}` — the client has to reply
+  with `{"pong":"<same-uuid>","time":...}` or the socket drops.
+- **MEXC** uses Protobuf for market data. Subscribe/control frames
+  are still JSON, but book ticker payloads are
+  `PushDataV3ApiWrapper` messages. Generated stubs are checked in
+  under `arbitrage/mexc_proto/`; `.proto` sources under
+  `proto/mexc/`. Regenerate with `grpcio-tools`:
+  ```
+  python -m grpc_tools.protoc -I proto/mexc \
+      --python_out=arbitrage/mexc_proto proto/mexc/*.proto
+  ```
 - **Jitter in reconnect backoff** prevents all handlers from
   reconnecting simultaneously after a network blip and tripping
   per-IP rate limits.
