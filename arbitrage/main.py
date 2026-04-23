@@ -14,7 +14,10 @@ import uvloop
 from .comparator import PricesBook
 from .config import SYMBOLS
 from .exchanges.binance import run_binance
+from .exchanges.bitget import run_bitget
 from .exchanges.bybit import run_bybit
+from .exchanges.gateio import run_gateio
+from .exchanges.kucoin import run_kucoin
 from .heartbeat import heartbeat_monitor
 
 
@@ -32,6 +35,9 @@ async def _run() -> None:
     tasks: list[asyncio.Task[None]] = [
         asyncio.create_task(run_binance(prices, SYMBOLS), name="binance"),
         asyncio.create_task(run_bybit(prices, SYMBOLS), name="bybit"),
+        asyncio.create_task(run_gateio(prices, SYMBOLS), name="gateio"),
+        asyncio.create_task(run_bitget(prices, SYMBOLS), name="bitget"),
+        asyncio.create_task(run_kucoin(prices, SYMBOLS), name="kucoin"),
         asyncio.create_task(heartbeat_monitor(prices), name="heartbeat"),
     ]
 
