@@ -80,7 +80,8 @@ def test_check_and_signal_logs_on_arb(caplog):
     }
     with caplog.at_level(logging.INFO, logger="arbitrage.comparator"):
         comparator.check_and_signal(prices, "BTCUSDT")
-    assert any("ARB BTCUSDT" in r.message for r in caplog.records)
+    # Log line is "ARB [spot] BTCUSDT: ..." — just check both pieces appear.
+    assert any("ARB" in r.message and "BTCUSDT" in r.message for r in caplog.records)
 
 
 def test_check_and_signal_silent_without_arb(caplog):
@@ -99,3 +100,46 @@ def test_check_and_signal_silent_without_arb(caplog):
 def test_check_and_signal_skips_unknown_symbol():
     comparator.check_and_signal({}, "DOESNOTEXIST")
     # just make sure it doesn't throw
+
+
+def test_find_arbitrage_accepts_custom_fees_and_min_pct():
+    """Same book, different fee tables -> different outcomes."""
+    now = int(time.time() * 1000)
+    book = {
+        "a": _tick("a", 99.9, 100.0, now),
+        "b": _tick("b", 101.0, 101.1, now),
+    }
+    # Zero fees, threshold well below the ~1% gross spread -> hit.
+    hit = find_arbitrage(
+        book, "BTCUSDT", now, fees={"a": 0.0, "b": 0.0}, min_pct=0.1
+    )
+    assert hit is not None
+    # Fat fees eat the whole spread -> no hit, even with same threshold.
+    assert (
+        find_arbitrage(
+            book, "BTCUSDT", now, fees={"a": 0.02, "b": 0.02}, min_pct=0.1
+        )
+        is None
+    )
+
+
+def test_check_and_signal_perp_labels_log(caplog):
+    """Perp variant must emit `[perp]` in the prefix."""
+    now = int(time.time() * 1000)
+    prices: dict[str, dict[str, Tick]] = {
+        "BTCUSDT": {
+            "a": _tick("a", 99.9, 100.0, now),
+            "b": _tick("b", 101.0, 101.1, now),
+        }
+    }
+    # Ensure the threshold is low enough for the synthetic spread.
+    old_fees, old_min = comparator.FEES_PERP, comparator.MIN_PROFIT_PCT_PERP
+    comparator.FEES_PERP = {"a": 0.0, "b": 0.0}
+    comparator.MIN_PROFIT_PCT_PERP = 0.1
+    try:
+        with caplog.at_level(logging.INFO, logger="arbitrage.comparator"):
+            comparator.check_and_signal_perp(prices, "BTCUSDT")
+    finally:
+        comparator.FEES_PERP, comparator.MIN_PROFIT_PCT_PERP = old_fees, old_min
+
+    assert any("[perp]" in r.message and "BTCUSDT" in r.message for r in caplog.records)

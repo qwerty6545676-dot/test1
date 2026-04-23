@@ -26,9 +26,9 @@ import time
 import msgspec
 from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 
-from ..comparator import PricesBook, check_and_signal
-from ..normalizer import Tick, validate_tick
-from ._common import from_native, sleep_backoff, to_native
+from ...comparator import PricesBook, check_and_signal_spot
+from ...normalizer import Tick, validate_tick
+from .._common import from_native, sleep_backoff, to_native
 
 logger = logging.getLogger("arbitrage.gateio")
 
@@ -129,7 +129,7 @@ class GateioListener(WSListener):
             self._prices[canonical] = book
         book[_EXCHANGE] = tick
 
-        check_and_signal(self._prices, canonical)
+        check_and_signal_spot(self._prices, canonical)
 
     async def _ping_loop(self) -> None:
         try:

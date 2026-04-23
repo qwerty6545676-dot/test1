@@ -32,10 +32,10 @@ import time
 import msgspec
 from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 
-from ..comparator import PricesBook, check_and_signal
-from ..mexc_proto import PushDataV3ApiWrapper_pb2
-from ..normalizer import Tick, validate_tick
-from ._common import sleep_backoff
+from ...comparator import PricesBook, check_and_signal_spot
+from ...mexc_proto import PushDataV3ApiWrapper_pb2
+from ...normalizer import Tick, validate_tick
+from .._common import sleep_backoff
 
 logger = logging.getLogger("arbitrage.mexc")
 
@@ -126,7 +126,7 @@ class MexcListener(WSListener):
             self._prices[symbol] = book
         book[_EXCHANGE] = tick
 
-        check_and_signal(self._prices, symbol)
+        check_and_signal_spot(self._prices, symbol)
 
 
 async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:

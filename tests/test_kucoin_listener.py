@@ -5,7 +5,7 @@ from __future__ import annotations
 import msgspec
 
 from arbitrage.comparator import PricesBook
-from arbitrage.exchanges.kucoin import KuCoinListener
+from arbitrage.exchanges.spot.kucoin import KuCoinListener
 
 
 class _FakeFrame:

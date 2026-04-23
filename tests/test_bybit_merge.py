@@ -1,4 +1,4 @@
-from arbitrage.exchanges.bybit import _merge_side
+from arbitrage.exchanges.spot.bybit import _merge_side
 
 
 def test_snapshot_populates_both_sides():
