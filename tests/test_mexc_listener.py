@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from arbitrage.comparator import PricesBook
-from arbitrage.exchanges.mexc import MexcListener
+from arbitrage.exchanges.spot.mexc import MexcListener
 from arbitrage.mexc_proto import PushDataV3ApiWrapper_pb2
 
 

@@ -1,4 +1,4 @@
-"""Parser-level tests for BingxListener — all frames are gzipped JSON."""
+"""Parser-level tests for BingxPerpListener (swap-market, gzipped JSON)."""
 
 from __future__ import annotations
 
@@ -7,15 +7,13 @@ import gzip
 import msgspec
 
 from arbitrage.comparator import PricesBook
-from arbitrage.exchanges.spot.bingx import BingxListener
+from arbitrage.exchanges.perp.bingx import BingxPerpListener
 
 
 _encoder = msgspec.json.Encoder()
 
 
 class _FakeFrame:
-    """Mimic picows WSFrame's payload method."""
-
     def __init__(self, payload: bytes, msg_type: int = 2) -> None:
         self._payload = payload
         self.msg_type = msg_type
@@ -25,8 +23,6 @@ class _FakeFrame:
 
 
 class _FakeTransport:
-    """Records whatever the listener tries to send back (pong)."""
-
     def __init__(self) -> None:
         self.sent: list[tuple[int, bytes]] = []
 
@@ -36,9 +32,9 @@ class _FakeTransport:
 
 def _listener(
     symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
-) -> tuple[BingxListener, PricesBook]:
+) -> tuple[BingxPerpListener, PricesBook]:
     prices: PricesBook = {}
-    return BingxListener(prices, symbols), prices
+    return BingxPerpListener(prices, symbols), prices
 
 
 def _gz(obj) -> _FakeFrame:
@@ -51,20 +47,22 @@ def test_update_populates_prices():
         "code": 0,
         "dataType": "BTC-USDT@bookTicker",
         "data": {
-            "s": "BTC-USDT",
-            "b": "78132.00",
-            "B": "0.000094",
-            "a": "78132.01",
-            "A": "0.003385",
-            "E": 1700000000123,
             "e": "bookTicker",
+            "u": 1,
+            "E": 1776941439179,
+            "T": 1776941439170,
+            "s": "BTC-USDT",
+            "b": "77328.7",
+            "B": "4.5829",
+            "a": "77328.9",
+            "A": "5.5300",
         },
     }
     listener.on_ws_frame(transport=_FakeTransport(), frame=_gz(msg))
-    tick = prices["BTCUSDT"]["bingx"]
-    assert tick.bid == 78132.0
-    assert tick.ask == 78132.01
-    assert tick.ts_exchange == 1700000000123
+    tick = prices["BTCUSDT"]["bingx-perp"]
+    assert tick.bid == 77328.7
+    assert tick.ask == 77328.9
+    assert tick.ts_exchange == 1776941439179
 
 
 def test_server_ping_triggers_pong():
@@ -79,16 +77,16 @@ def test_server_ping_triggers_pong():
     assert pong == {"pong": "abc123", "time": "2026-04-23T15:14:35.515+0800"}
 
 
-def test_subscribe_ack_ignored():
+def test_non_zero_code_ignored():
     listener, prices = _listener()
-    msg = {"code": 0, "id": "x", "msg": "SUCCESS", "timestamp": 1}
+    msg = {"code": 1, "msg": "bad subscribe", "id": "x"}
     listener.on_ws_frame(transport=_FakeTransport(), frame=_gz(msg))
     assert prices == {}
 
 
-def test_non_zero_code_ignored():
+def test_subscribe_ack_ignored():
     listener, prices = _listener()
-    msg = {"code": 1, "msg": "bad subscribe", "id": "x"}
+    msg = {"code": 0, "id": "probe", "msg": "", "dataType": "", "data": None}
     listener.on_ws_frame(transport=_FakeTransport(), frame=_gz(msg))
     assert prices == {}
 
@@ -106,14 +104,4 @@ def test_unknown_symbol_ignored():
 def test_non_gzip_frame_dropped_silently():
     listener, prices = _listener()
     listener.on_ws_frame(transport=_FakeTransport(), frame=_FakeFrame(b"not gzipped"))
-    assert prices == {}
-
-
-def test_malformed_tick_dropped():
-    listener, prices = _listener()
-    msg = {
-        "code": 0,
-        "data": {"s": "BTC-USDT", "b": "nan?", "a": "1", "E": 1},
-    }
-    listener.on_ws_frame(transport=_FakeTransport(), frame=_gz(msg))
     assert prices == {}

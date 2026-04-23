@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import msgspec
 
 from arbitrage.comparator import PricesBook
-from arbitrage.exchanges.gateio import GateioListener
+from arbitrage.exchanges.spot.gateio import GateioListener
 
 
 class _FakeFrame:

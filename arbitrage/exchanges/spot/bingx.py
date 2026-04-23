@@ -48,9 +48,9 @@ import uuid
 import msgspec
 from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 
-from ..comparator import PricesBook, check_and_signal
-from ..normalizer import Tick, validate_tick
-from ._common import sleep_backoff, to_native
+from ...comparator import PricesBook, check_and_signal_spot
+from ...normalizer import Tick, validate_tick
+from .._common import sleep_backoff, to_native
 
 logger = logging.getLogger("arbitrage.bingx")
 
@@ -150,7 +150,7 @@ class BingxListener(WSListener):
             self._prices[canonical] = book
         book[_EXCHANGE] = tick
 
-        check_and_signal(self._prices, canonical)
+        check_and_signal_spot(self._prices, canonical)
 
 
 async def run_bingx(prices: PricesBook, symbols: tuple[str, ...]) -> None:
