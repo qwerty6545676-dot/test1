@@ -1,46 +1,48 @@
-"""Global configuration for the arbitrage scanner.
+"""Backwards-compatible module-level constants.
 
-Edit the constants here to adjust the universe of symbols, freshness
-thresholds and per-exchange taker fees.
+The real source of truth is `arbitrage.settings` (driven by
+`settings.yaml`). This module re-exports a handful of flat scalars so
+existing listeners, the comparator and the heartbeat task can keep
+using their current imports without knowing about the nested Settings
+object.
+
+New code should import from `arbitrage.settings` directly.
 """
 
 from __future__ import annotations
 
-# Symbols tracked across every exchange. Use the canonical BASE+QUOTE
-# (no separator) form; per-exchange modules translate it if needed.
-SYMBOLS: tuple[str, ...] = (
-    "BTCUSDT",
-    "ETHUSDT",
-    "SOLUSDT",
-)
+from .settings import get_settings as _get_settings
 
-# Ticks older than this are considered stale and ignored by the
-# comparator / wiped by the heartbeat monitor.
-MAX_AGE_MS: int = 500
 
-# Minimum net profit (in percent) to emit an arbitrage signal.
-MIN_PROFIT_PCT: float = 0.15
+def _reload_module_constants() -> None:
+    """Refresh the flat constants from the currently-loaded settings.
 
-# How long a per-exchange entry is allowed to go without an update
-# before the heartbeat monitor evicts it.
-HEARTBEAT_TIMEOUT_MS: int = 3000
+    Exposed mostly for tests that swap out `settings.yaml` at runtime.
+    """
+    s = _get_settings()
+    g = globals()
+    # Spot universe is the one the *existing* (spot-only) listeners,
+    # comparator and heartbeat use. Perp values live on `settings.fees.perp`
+    # / `settings.symbols.perp` and are read by the perp-specific code
+    # once it lands.
+    g["SYMBOLS"] = tuple(s.symbols.spot)
+    g["MAX_AGE_MS"] = s.limits.max_age_ms
+    g["MIN_PROFIT_PCT"] = s.filters.spot.min_profit_pct
+    g["HEARTBEAT_TIMEOUT_MS"] = s.limits.heartbeat_timeout_ms
+    g["HEARTBEAT_INTERVAL_MS"] = s.limits.heartbeat_interval_ms
+    g["FEES"] = dict(s.fees.spot)
+    g["BACKOFF_MAX_S"] = s.limits.backoff_max_s
+    g["BACKOFF_JITTER_S"] = s.limits.backoff_jitter_s
 
-# How often the heartbeat monitor scans the price book.
-HEARTBEAT_INTERVAL_MS: int = 1000
 
-# Taker fees as fractions (0.001 == 0.10%). Used round-trip in the
-# comparator (buy leg + sell leg).
-FEES: dict[str, float] = {
-    "binance": 0.001,
-    "bybit": 0.001,
-    # Wired up later — left here so the comparator is ready:
-    "gateio": 0.002,
-    "bitget": 0.001,
-    "kucoin": 0.001,
-    "bingx": 0.002,
-    "mexc": 0.0,
-}
+# Populate on import so existing `from .config import SYMBOLS` works.
+SYMBOLS: tuple[str, ...] = ()
+MAX_AGE_MS: int = 0
+MIN_PROFIT_PCT: float = 0.0
+HEARTBEAT_TIMEOUT_MS: int = 0
+HEARTBEAT_INTERVAL_MS: int = 0
+FEES: dict[str, float] = {}
+BACKOFF_MAX_S: float = 0.0
+BACKOFF_JITTER_S: float = 0.0
 
-# Reconnect backoff. `wait = min(2 ** attempt, BACKOFF_MAX) + jitter`.
-BACKOFF_MAX_S: float = 60.0
-BACKOFF_JITTER_S: float = 1.0
+_reload_module_constants()

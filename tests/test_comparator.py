@@ -1,9 +1,18 @@
 import logging
 import time
 
+import pytest
+
 from arbitrage import comparator
 from arbitrage.comparator import find_arbitrage
 from arbitrage.normalizer import Tick
+
+
+# Tests exercise sub-1% arbs; keep the threshold low here regardless of
+# what settings.yaml says for prod.
+@pytest.fixture(autouse=True)
+def _low_threshold(monkeypatch):
+    monkeypatch.setattr(comparator, "MIN_PROFIT_PCT", 0.15)
 
 
 def _tick(exchange: str, bid: float, ask: float, ts_local: int | None = None) -> Tick:

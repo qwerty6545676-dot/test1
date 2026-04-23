@@ -1,0 +1,73 @@
+# Arbitrage scanner settings.
+#
+# To use: copy this file to `settings.yaml` in the repo root and edit.
+# `settings.yaml` is git-ignored so your local edits stay local.
+# If `settings.yaml` is missing the scanner falls back to this example,
+# which is why the defaults are conservative and everything Telegram-y
+# is disabled out of the box.
+#
+# Secrets (bot tokens, API keys) never live here — put them in `.env`.
+
+# -- Which symbols to track, per market type ------------------------
+symbols:
+  spot: [BTCUSDT, ETHUSDT, SOLUSDT]
+  perp: [BTCUSDT, ETHUSDT, SOLUSDT]
+
+# -- Arb detection & alerting filters, per market type --------------
+# Tiers are percentage spreads (net of fees) that route the signal
+# to a specific Telegram forum topic. Gaps between tiers are allowed
+# (signals that fall through any `from_pct..to_pct` band are silenced).
+filters:
+  spot:
+    min_profit_pct: 3.0            # below this net% we don't even dedup
+    cooldown_seconds: 180          # same (symbol, buy, sell) only every N s
+    info_topic_id: null            # health/heartbeat/errors land here
+    tiers:
+      low:  { from_pct: 3.0,  to_pct: 5.0,   topic_id: null }
+      mid:  { from_pct: 5.0,  to_pct: 10.0,  topic_id: null }
+      high: { from_pct: 10.0, to_pct: 999.0, topic_id: null }
+  perp:
+    min_profit_pct: 0.5
+    cooldown_seconds: 180
+    info_topic_id: null
+    tiers:
+      low:  { from_pct: 0.5, to_pct: 1.0,   topic_id: null }
+      mid:  { from_pct: 1.0, to_pct: 3.0,   topic_id: null }
+      high: { from_pct: 3.0, to_pct: 999.0, topic_id: null }
+
+# -- Per-exchange taker fees (fractions, NOT percent) ---------------
+# 0.001 == 0.10%. Verify against your VIP tier / fee-in-native-token
+# settings on each venue before trusting these numbers.
+fees:
+  spot:
+    binance: 0.001
+    bybit:   0.001
+    gateio:  0.002
+    bitget:  0.001
+    kucoin:  0.001
+    bingx:   0.002
+    mexc:    0.0
+  perp:
+    binance: 0.0004
+    bybit:   0.00055
+    gateio:  0.0005
+    bitget:  0.0006
+    kucoin:  0.0006
+    bingx:   0.0005
+    mexc:    0.0002
+
+# -- Tick freshness & reconnect behaviour ---------------------------
+limits:
+  max_age_ms: 500                  # stale ticks ignored by comparator
+  heartbeat_interval_ms: 1000      # how often heartbeat task runs
+  heartbeat_timeout_ms: 3000       # after this, evict the exchange entry
+  backoff_max_s: 60.0              # reconnect cap for exponential backoff
+  backoff_jitter_s: 1.0            # random seconds added on top
+
+# -- Telegram output ------------------------------------------------
+# `enabled: false` means signals are still detected & logged, but
+# nothing is sent to Telegram. Token lives in `.env`, not here.
+telegram:
+  enabled: false
+  spot_chat_id: null               # e.g. -1001234567890 (with -100 prefix)
+  perp_chat_id: null
