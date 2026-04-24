@@ -85,3 +85,25 @@ telegram:
   enabled: false
   spot_chat_id: null               # e.g. -1001234567890 (with -100 prefix)
   perp_chat_id: null
+
+# -- Paper trading (simulation only, no real orders) ----------------
+# Spot: instant-close model (buy on A, sell on B at the same moment,
+#       pay two taker fees + a small slippage haircut).
+# Perp: open long on cheap venue + short on expensive venue, wait
+#       for the spread to collapse below `close_threshold_pct`.
+#       Force-close after `max_hold_seconds` if it never reverts.
+# Closed trades are appended to `paper_closed.jsonl`; opens (perp
+# only) are tracked in `paper_open.jsonl`. Every close also emits
+# a Telegram info-topic notice with the net PnL.
+paper_trading:
+  enabled: false
+  open_path: "data/paper_open.jsonl"
+  closed_path: "data/paper_closed.jsonl"
+  spot:
+    notional_per_leg_usd: 50.0     # $50 per leg -> $100 notional total
+    slippage_pct: 0.05             # assumed slippage per side, in percent
+  perp:
+    notional_per_leg_usd: 50.0
+    close_threshold_pct: 0.5       # close when spread drops below this
+    max_hold_seconds: 86400        # force-close after 24h
+    poll_interval_s: 1.0           # how often to check open positions

@@ -81,6 +81,26 @@ class TelegramConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     perp_chat_id: int | None = None
 
 
+class PaperSpotConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    notional_per_leg_usd: float = 50.0
+    slippage_pct: float = 0.05
+
+
+class PaperPerpConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    notional_per_leg_usd: float = 50.0
+    close_threshold_pct: float = 0.5
+    max_hold_seconds: int = 86_400
+    poll_interval_s: float = 1.0
+
+
+class PaperTradingConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    enabled: bool = False
+    open_path: str = "data/paper_open.jsonl"
+    closed_path: str = "data/paper_closed.jsonl"
+    spot: PaperSpotConfig = msgspec.field(default_factory=PaperSpotConfig)
+    perp: PaperPerpConfig = msgspec.field(default_factory=PaperPerpConfig)
+
+
 class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Root config object. Immutable once loaded."""
 
@@ -89,6 +109,7 @@ class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     fees: Fees
     limits: Limits = msgspec.field(default_factory=Limits)
     telegram: TelegramConfig = msgspec.field(default_factory=TelegramConfig)
+    paper_trading: PaperTradingConfig = msgspec.field(default_factory=PaperTradingConfig)
 
     # Where in the filesystem did this come from? Useful for log lines.
     _source_path: ClassVar[str] = ""

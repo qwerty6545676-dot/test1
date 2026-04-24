@@ -14,7 +14,7 @@
 7. [Telegram-алёрты](#telegram-алёрты)
 8. [Анализ сигналов](#анализ-сигналов) *(планируется)*
 9. [Backtest и replay](#backtest-и-replay) *(планируется)*
-10. [Paper trading](#paper-trading) *(планируется)*
+10. [Paper trading](#paper-trading)
 11. [Production-деплой](#production-деплой) *(планируется)*
 12. [Troubleshooting](#troubleshooting)
 13. [FAQ](#faq)
@@ -631,7 +631,11 @@ diff <(jq -c '.' data/signals-2024-01-15.jsonl | sort) \
 
 ## Paper trading
 
-**Статус:** 🚧 Будет после Persistence + Backtest.
+**Статус:** ✅ Реализовано (сводные отчёты — в следующей итерации).
+
+Открытые позиции пишутся в `data/paper_open.jsonl`, закрытые — в
+`data/paper_closed.jsonl`. Каждое закрытие также эхом идёт в
+Telegram info-топик с нетто-PnL и временем удержания.
 
 ### Что это
 
