@@ -36,6 +36,7 @@ from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 
 from ...comparator import PricesBook, check_and_signal_perp
 from ...normalizer import Tick, validate_tick
+from ...ratelimit import AsyncTokenBucket
 from .._common import sleep_backoff
 from ._symbol import from_kucoin_perp, to_kucoin_perp
 
@@ -45,12 +46,17 @@ _BULLET_URL = "https://api-futures.kucoin.com/api/v1/bullet-public"
 _EXCHANGE = "kucoin-perp"
 _DEFAULT_PING_INTERVAL_MS = 18000
 
+# Futures REST lives on a different host (api-futures.kucoin.com),
+# which has its own 30 req / 3 s quota — so it gets its own bucket.
+_BULLET_LIMITER = AsyncTokenBucket(capacity=10, tokens_per_s=10 / 3)
+
 _decoder = msgspec.json.Decoder()
 _encoder = msgspec.json.Encoder()
 
 
 async def _fetch_ws_params() -> tuple[str, int]:
     """REST bootstrap: returns (ws_url_with_token, ping_interval_ms)."""
+    await _BULLET_LIMITER.acquire()
     async with aiohttp.ClientSession() as session:
         async with session.post(
             _BULLET_URL, timeout=aiohttp.ClientTimeout(total=5)
