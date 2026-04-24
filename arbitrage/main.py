@@ -24,6 +24,7 @@ import uvloop
 
 from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
+from .persistence import SignalsWriter
 from .settings import Settings, get_settings, get_telegram_bot_token
 from .signals import InfoEvent, get_bus
 from .telegram_notify import TelegramClient, TelegramNotifier
@@ -91,6 +92,13 @@ async def _run() -> None:
 
     tg = await _setup_telegram(settings)
     bus = get_bus()
+
+    signals_writer: SignalsWriter | None = None
+    if settings.persistence.enabled:
+        signals_writer = SignalsWriter(settings.persistence.signals_path)
+        signals_writer.open()
+        signals_writer.attach(bus)
+
     bus.emit_info(
         InfoEvent(
             ts_ms=_now_ms(),
@@ -216,6 +224,8 @@ async def _run() -> None:
             # then tear it down. 1s is plenty for a single HTTP POST.
             await asyncio.sleep(1.0)
             await tg[0].stop()
+        if signals_writer is not None:
+            signals_writer.close()
 
 
 def _now_ms() -> int:

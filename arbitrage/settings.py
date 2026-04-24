@@ -81,6 +81,13 @@ class TelegramConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     perp_chat_id: int | None = None
 
 
+class PersistenceConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Where to write the append-only logs of detected signals."""
+
+    enabled: bool = False
+    signals_path: str = "data/signals.jsonl"
+
+
 class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Root config object. Immutable once loaded."""
 
@@ -89,6 +96,7 @@ class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     fees: Fees
     limits: Limits = msgspec.field(default_factory=Limits)
     telegram: TelegramConfig = msgspec.field(default_factory=TelegramConfig)
+    persistence: PersistenceConfig = msgspec.field(default_factory=PersistenceConfig)
 
     # Where in the filesystem did this come from? Useful for log lines.
     _source_path: ClassVar[str] = ""

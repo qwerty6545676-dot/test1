@@ -9,7 +9,6 @@ __pycache__/
 
 # Local user settings (settings.example.yaml is committed as a template).
 settings.yaml
-
 # Runtime data (persistence / logs / paper trades).
 data/
 logs/
