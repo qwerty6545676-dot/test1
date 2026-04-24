@@ -209,7 +209,7 @@ async def run_kucoin(prices: PricesBook, symbols: tuple[str, ...]) -> None:
         except Exception:
             logger.exception("kucoin: connection error")
 
-        await sleep_backoff(attempt)
+        await sleep_backoff(attempt, exchange=_EXCHANGE, market="spot")
         attempt += 1
 
 

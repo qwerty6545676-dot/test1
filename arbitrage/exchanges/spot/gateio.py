@@ -161,7 +161,7 @@ async def run_gateio(prices: PricesBook, symbols: tuple[str, ...]) -> None:
         except Exception:
             logger.exception("gateio: connection error")
 
-        await sleep_backoff(attempt)
+        await sleep_backoff(attempt, exchange=_EXCHANGE, market="spot")
         attempt += 1
 
 

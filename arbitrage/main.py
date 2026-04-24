@@ -6,6 +6,12 @@ With spot+perp enabled there are 14 listener tasks (7 spot + 7 perp),
 each writing into its own prices book. The heartbeat monitor runs
 once for each book so stale entries in either market get evicted on
 the same schedule.
+
+On top of that — when ``settings.yaml`` has ``telegram.enabled: true``
+and ``TELEGRAM_BOT_TOKEN`` is set in the environment — a background
+Telegram notifier is started. Arb signals and info events flow
+through ``arbitrage.signals.SignalBus``; the notifier turns them into
+messages addressed to the spot/perp groups at the configured topics.
 """
 
 from __future__ import annotations
@@ -18,7 +24,23 @@ import uvloop
 
 from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
-from .settings import get_settings
+from .settings import Settings, get_settings, get_telegram_bot_token
+from .signals import InfoEvent, get_bus
+from .telegram_notify import TelegramClient, TelegramNotifier
+from .telegram_notify.log_handler import BusErrorHandler
+
+# Exchange labels the listeners use for ``Tick.exchange``. Passed into
+# the heartbeat monitor so it knows which venues to watch for silence.
+_SPOT_EXCHANGES: tuple[str, ...] = (
+    "binance",
+    "bybit",
+    "gateio",
+    "bitget",
+    "kucoin",
+    "bingx",
+    "mexc",
+)
+_PERP_EXCHANGES: tuple[str, ...] = tuple(f"{ex}-perp" for ex in _SPOT_EXCHANGES)
 
 
 def _setup_logging() -> None:
@@ -29,6 +51,35 @@ def _setup_logging() -> None:
     )
 
 
+async def _setup_telegram(
+    settings: Settings,
+) -> tuple[TelegramClient, TelegramNotifier] | None:
+    """Start the Telegram client + notifier if enabled and configured."""
+    tg = settings.telegram
+    if not tg.enabled:
+        return None
+    token = get_telegram_bot_token()
+    if token is None:
+        logging.getLogger("arbitrage.main").warning(
+            "telegram.enabled=true but TELEGRAM_BOT_TOKEN is unset — skipping"
+        )
+        return None
+
+    client = TelegramClient(token)
+    await client.start()
+
+    bus = get_bus()
+    notifier = TelegramNotifier(settings, client, bus)
+    notifier.attach()
+
+    # Forward ERROR log records from *anywhere* in the app into the bus
+    # so they're sent to the info-topic(s).
+    bus_handler = BusErrorHandler(bus)
+    logging.getLogger().addHandler(bus_handler)
+
+    return client, notifier
+
+
 async def _run() -> None:
     settings = get_settings()
     spot_symbols = tuple(settings.symbols.spot)
@@ -36,6 +87,22 @@ async def _run() -> None:
 
     prices_spot: PricesBook = {}
     prices_perp: PricesBook = {}
+
+    tg = await _setup_telegram(settings)
+    bus = get_bus()
+    bus.emit_info(
+        InfoEvent(
+            ts_ms=_now_ms(),
+            kind="startup",
+            message=(
+                f"scanner starting: "
+                f"{len(spot_symbols)} spot symbols × {len(_SPOT_EXCHANGES)} venues, "
+                f"{len(perp_symbols)} perp symbols × {len(_PERP_EXCHANGES)} venues"
+            ),
+            market=None,
+            severity="info",
+        )
+    )
 
     tasks: list[asyncio.Task[None]] = []
 
@@ -83,8 +150,22 @@ async def _run() -> None:
 
     # ---- Heartbeat monitors (one per book) -----------------------
     tasks += [
-        asyncio.create_task(heartbeat_monitor(prices_spot, label="spot"), name="heartbeat-spot"),
-        asyncio.create_task(heartbeat_monitor(prices_perp, label="perp"), name="heartbeat-perp"),
+        asyncio.create_task(
+            heartbeat_monitor(
+                prices_spot,
+                label="spot",
+                expected_exchanges=_SPOT_EXCHANGES,
+            ),
+            name="heartbeat-spot",
+        ),
+        asyncio.create_task(
+            heartbeat_monitor(
+                prices_perp,
+                label="perp",
+                expected_exchanges=_PERP_EXCHANGES,
+            ),
+            name="heartbeat-perp",
+        ),
     ]
 
     stop_event = asyncio.Event()
@@ -104,10 +185,30 @@ async def _run() -> None:
         await stop_event.wait()
     finally:
         logging.getLogger("arbitrage.main").info("shutting down")
+        bus.emit_info(
+            InfoEvent(
+                ts_ms=_now_ms(),
+                kind="shutdown",
+                message="scanner stopping",
+                market=None,
+                severity="info",
+            )
+        )
         for t in tasks:
             t.cancel()
         # Swallow CancelledError from the task group.
         await asyncio.gather(*tasks, return_exceptions=True)
+        if tg is not None:
+            # Give the worker a moment to flush the shutdown message,
+            # then tear it down. 1s is plenty for a single HTTP POST.
+            await asyncio.sleep(1.0)
+            await tg[0].stop()
+
+
+def _now_ms() -> int:
+    import time
+
+    return int(time.time() * 1000)
 
 
 def main() -> None:

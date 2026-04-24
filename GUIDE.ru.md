@@ -11,7 +11,7 @@
 4. [Настройка `.env`](#настройка-env)
 5. [Запуск и остановка](#запуск-и-остановка)
 6. [Как читать логи](#как-читать-логи)
-7. [Telegram-алёрты](#telegram-алёрты) *(планируется)*
+7. [Telegram-алёрты](#telegram-алёрты)
 8. [Анализ сигналов](#анализ-сигналов) *(планируется)*
 9. [Backtest и replay](#backtest-и-replay) *(планируется)*
 10. [Paper trading](#paper-trading) *(планируется)*
@@ -407,9 +407,8 @@ INFO arbitrage.main | shutting down
 
 ## Telegram-алёрты
 
-**Статус:** 🚧 Будет в следующих PR.
-
-Когда будет готово:
+**Статус:** ✅ Реализовано. Отсутствуют: hourly heartbeat и daily
+summary — они зависят от Persistence и появятся в следующих PR.
 
 ### Структура
 
@@ -418,52 +417,105 @@ INFO arbitrage.main | shutting down
 
 | Топик | Что туда идёт |
 |---|---|
-| `low` (3-5%) | Низкие спреды — много, но слабые |
-| `mid` (5-10%) | Средние — интересные, но смотреть внимательно |
-| `high` (10%+) | Жирные — приоритет, проверить срочно |
-| `info` | Heartbeat, silence, reconnects, errors, daily summary |
+| `low` (3-5% spot / 0.5-1% perp) | Низкие спреды — много, но слабые |
+| `mid` (5-10% spot / 1-3% perp) | Средние — интересные |
+| `high` (10%+ spot / 3%+ perp) | Жирные — приоритет, проверить срочно |
+| `info` | Silence, recovery, reconnects, errors, startup/shutdown |
+
+Границы тиров настраиваются — см. `filters.spot.tiers` / `filters.perp.tiers`
+в `settings.yaml`.
+
+### Разовая настройка
+
+1. Создай бота через [@BotFather](https://t.me/BotFather) (`/newbot`),
+   сохрани токен в `.env` как `TELEGRAM_BOT_TOKEN`.
+2. Создай **2 супергруппы** (одну для spot, одну для perp).
+   Settings → Topics → включи. Добавь бота как **админа**.
+3. В каждой группе создай **4 топика**: `low`, `mid`, `high`, `info`.
+4. Узнай `chat_id` каждой группы + `message_thread_id` каждого топика:
+   напиши в каждом топике что-нибудь боту (или просто добавь бота и
+   напиши), открой
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` — увидишь `chat.id`
+   и `message_thread_id`.
+5. Проставь их в `settings.yaml`:
+   ```yaml
+   telegram:
+     enabled: true
+     spot_chat_id: -1001234567890
+     perp_chat_id: -1009876543210
+   filters:
+     spot:
+       info_topic_id: 2      # "info" топик в spot-группе
+       tiers:
+         low:  { from_pct: 3.0,  to_pct: 5.0,   topic_id: 3 }
+         mid:  { from_pct: 5.0,  to_pct: 10.0,  topic_id: 4 }
+         high: { from_pct: 10.0, to_pct: 999.0, topic_id: 5 }
+     perp:
+       info_topic_id: 2
+       tiers:
+         low:  { from_pct: 0.5, to_pct: 1.0,   topic_id: 3 }
+         mid:  { from_pct: 1.0, to_pct: 3.0,   topic_id: 4 }
+         high: { from_pct: 3.0, to_pct: 999.0, topic_id: 5 }
+   ```
+
+Если `telegram.enabled: false` или токен не задан — сканер продолжит
+работать, просто **ничего не шлёт в TG**. В логах остаётся всё, как
+было.
 
 ### Что в info-топике
 
-- **🟢 Heartbeat** — раз в час. "Alive, за час: 124 сигнала (102 low
-  / 18 mid / 4 high), все 7 бирж онлайн".
-- **🔴 Silence alert** — если биржа молчит >30 секунд.
-  "🔴 bitget feed down 30s".
-- **🟢 Back online** — когда восстанавливается. "🟢 bitget back after 47s".
-- **⚠️ Reconnect flood** — если биржа переподключается >5 раз в
-  час: "bybit reconnected 8x in 1h".
-- **❌ Critical errors** — WSException, 5+ decode fails подряд,
-  token fetch 3+ fail подряд.
-- **🚀 Startup/💤 Shutdown** — когда бот стартует/останавливается.
-- **📊 Daily summary** — в 00:00 UTC: "За сутки: 2847 сигналов (2234
-  low / 531 mid / 82 high), топ-3 спреда: ETHUSDT gateio→bybit 11.4%,
-  SOLUSDT mexc→binance 8.9%, BTCUSDT bitget→kucoin 6.2%".
+- **🚀 Startup / 🛑 Shutdown** — когда сканер запускается и
+  останавливается.
+- **🔁 Reconnect** — каждый раз, когда биржа переподключается:
+  `"binance-perp: reconnecting in 4.2s (attempt 2)"`.
+- **🔇 Silence** — если биржа молчит дольше `silence_threshold_ms`
+  (по умолчанию 30 с, у heartbeat-монитора):
+  `"bybit: no ticks for 34s"`.
+- **✅ Recovery** — когда молчавшая биржа снова шлёт тики:
+  `"bybit: ticks resumed"`.
+- **❌ Error** — любой `logging.ERROR` из любого места приложения
+  (exception в listener'е, decode fail и т.п.) автоматически
+  пробрасывается в info-топик обеих групп.
+
+> **Что НЕ идёт в TG:** `WARNING`-уровень. Это сделано намеренно —
+> warnings шумные (кривые тики, отдельные decode fails, flapping
+> connection). Если их слать — утонут реальные `ERROR`. Warnings
+> остаются в файл-логе.
+
+Планируется (Persistence-PR): hourly heartbeat с агрегатом за час,
+daily summary в 00:00 UTC с топ-3 спредами, weekly paper-trading PnL.
 
 ### Формат сигнала в TG
 
+Сигналы идут в `parse_mode=HTML`, пример:
+
 ```
-🔥 HIGH SPREAD 8.45%
-
-BTCUSDT  spot
- 📈 buy  bitget  @ 78120.50  (qty 0.45, ~$35154)
- 📉 sell mexc    @ 78200.30  (qty 0.62, ~$48484)
-
-fees: 0.10% + 0.00%  →  net 8.15%
-age: 127ms | cooldown 3m
+ARB SPOT BTCUSDT
+buy  binance @ 78120.50000000
+sell bybit @ 78320.30000000
+net  0.876%
 ```
 
-### WARNING-уровень НЕ идёт в TG
+Cooldown (по умолчанию **3 минуты**) — по ключу
+`(market, symbol, buy_ex, sell_ex)`. Если тот же спред продолжает
+держаться — в топике он появится один раз, а потом через 3 минуты
+ещё раз (при условии, что спред не пропал из тира за это время).
+Настраивается в `filters.spot.cooldown_seconds` /
+`filters.perp.cooldown_seconds`.
 
-Почему: warnings — шумные по природе (редкие кривые тики, отдельные
-decode fails). Если слать — перестанешь их читать, и реальные ERROR
-утонут в спаме. Все warnings доступны в `logs/arbitrage.log`.
+### Надёжность
 
-Исключения — **одноразовые событийные warnings** которые всё-таки
-идут в TG:
-
-- "MEXC: 0 тиков за 60с несмотря на свежий коннект" (значит
-  подписка не сработала)
-- Хуже чем WARNING но не ERROR
+- **Очередь:** все отправки идут через bounded `asyncio.Queue` (1024
+  по умолчанию). Если TG медленный — сканер не тормозит, сообщения
+  ждут в очереди. Если очередь переполнилась — сообщение
+  дропается + лог `ERROR telegram: queue full`.
+- **Rate limit (429):** уважаем `retry_after` из ответа Telegram —
+  воркер спит ровно столько, сколько API просит.
+- **5xx:** экспоненциальный backoff, до 5 попыток, потом дроп.
+- **4xx (кроме 429):** перманентные ошибки (неправильный chat_id,
+  bad parse) — не ретраем, сразу в лог.
+- **Порядок:** один воркер = FIFO, сообщения приходят в том же
+  порядке, что и события.
 
 ---
 

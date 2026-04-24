@@ -168,7 +168,7 @@ async def run_bitget(prices: PricesBook, symbols: tuple[str, ...]) -> None:
         except Exception:
             logger.exception("bitget: connection error")
 
-        await sleep_backoff(attempt)
+        await sleep_backoff(attempt, exchange=_EXCHANGE, market="spot")
         attempt += 1
 
 

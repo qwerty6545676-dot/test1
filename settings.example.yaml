@@ -67,6 +67,20 @@ limits:
 # -- Telegram output ------------------------------------------------
 # `enabled: false` means signals are still detected & logged, but
 # nothing is sent to Telegram. Token lives in `.env`, not here.
+#
+# Setup:
+#   1. Create a bot via @BotFather, copy the token into .env as
+#      TELEGRAM_BOT_TOKEN.
+#   2. Create two supergroups (one for spot, one for perp), enable
+#      Topics on each, add the bot as admin.
+#   3. In each group create 4 topics: low / mid / high / info.
+#   4. Fill in the chat_ids below (they look like -1001234567890)
+#      and the 4 topic_ids per market under
+#      filters.{market}.tiers.*.topic_id and filters.{market}.info_topic_id.
+#
+# To get chat_id and topic_ids: DM the bot, open
+#   https://api.telegram.org/bot<TOKEN>/getUpdates
+# and read `chat.id` / `message_thread_id` from the response.
 telegram:
   enabled: false
   spot_chat_id: null               # e.g. -1001234567890 (with -100 prefix)
