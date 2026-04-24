@@ -108,3 +108,15 @@ paper_trading:
     max_hold_seconds: 86400        # force-close after 24h
     slippage_pct: 0.03             # haircut on each exit leg, in percent
     poll_interval_s: 1.0           # how often to check open positions
+
+# -- Persistence ----------------------------------------------------
+# `signals.jsonl` = append-only log of every detected arbitrage
+# signal (JSON Lines). Useful for `grep` / `jq` analysis and as the
+# corpus for future backtest / paper-trading replays.
+# Example analysis:
+#   tail -f data/signals.jsonl
+#   jq 'select(.net_pct > 5)' data/signals.jsonl
+#   jq -s 'group_by(.symbol) | map({sym:.[0].symbol, cnt:length})' data/signals.jsonl
+persistence:
+  enabled: true
+  signals_path: "data/signals.jsonl"
