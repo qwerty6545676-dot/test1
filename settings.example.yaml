@@ -85,3 +85,15 @@ telegram:
   enabled: false
   spot_chat_id: null               # e.g. -1001234567890 (with -100 prefix)
   perp_chat_id: null
+
+# -- Persistence ----------------------------------------------------
+# `signals.jsonl` = append-only log of every detected arbitrage
+# signal (JSON Lines). Useful for `grep` / `jq` analysis and as the
+# corpus for future backtest / paper-trading replays.
+# Example analysis:
+#   tail -f data/signals.jsonl
+#   jq 'select(.net_pct > 5)' data/signals.jsonl
+#   jq -s 'group_by(.symbol) | map({sym:.[0].symbol, cnt:length})' data/signals.jsonl
+persistence:
+  enabled: true
+  signals_path: "data/signals.jsonl"
