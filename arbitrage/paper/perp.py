@@ -33,6 +33,7 @@ import uuid
 from typing import Callable
 
 from ..comparator import PricesBook
+from ..exchanges._common import base_exchange
 from ..settings import Fees
 from ..signals import ArbSignal, InfoEvent, SignalBus
 from .models import ClosedPaperTrade, OpenPaperTrade
@@ -217,8 +218,10 @@ class PerpPaperTrader:
 
         gross_pnl = long_pnl + short_pnl
 
-        fee_buy = self._fees.perp.get(trade.buy_ex, 0.0)
-        fee_sell = self._fees.perp.get(trade.sell_ex, 0.0)
+        # Fee table keys are bare names ("binance"); ArbSignal carries
+        # market-suffixed labels ("binance-perp") — strip before lookup.
+        fee_buy = self._fees.perp.get(base_exchange(trade.buy_ex), 0.0)
+        fee_sell = self._fees.perp.get(base_exchange(trade.sell_ex), 0.0)
         # Entry + exit taker fees on both legs, valued at notional.
         fees_usd = (
             self._notional * fee_buy * 2

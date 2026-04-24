@@ -24,6 +24,7 @@ import logging
 import time
 import uuid
 
+from ..exchanges._common import base_exchange
 from ..settings import Fees
 from ..signals import ArbSignal, InfoEvent, SignalBus
 from .models import ClosedPaperTrade
@@ -73,8 +74,10 @@ class SpotPaperTrader:
             logger.warning("spot paper: skipping bad signal %r", signal)
             return
 
-        fee_buy = self._fees.spot.get(signal.buy_ex, 0.0)
-        fee_sell = self._fees.spot.get(signal.sell_ex, 0.0)
+        # Strip any market suffix for consistency — spot labels are
+        # already bare but this keeps the two traders symmetric.
+        fee_buy = self._fees.spot.get(base_exchange(signal.buy_ex), 0.0)
+        fee_sell = self._fees.spot.get(base_exchange(signal.sell_ex), 0.0)
 
         qty = self._notional / signal.buy_ask
         gross_pnl = qty * (signal.sell_bid - signal.buy_ask)

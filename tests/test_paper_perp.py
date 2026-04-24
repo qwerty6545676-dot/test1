@@ -20,9 +20,12 @@ class _Clock:
 
 
 def _fees() -> Fees:
+    # Fee-table keys are the *bare* exchange names (as they appear in
+    # settings.yaml), while exchange labels on the wire carry the
+    # "-perp" suffix. The trader must strip the suffix at lookup time.
     return Fees(
         spot={},
-        perp={"a": 0.0004, "b": 0.0004},
+        perp={"binance": 0.0004, "bybit": 0.0004},
     )
 
 
@@ -31,8 +34,8 @@ def _sig(ts_ms: int = 1_700_000_000_000, **kw) -> ArbSignal:
         ts_ms=ts_ms,
         market="perp",
         symbol="BTCUSDT",
-        buy_ex="a",
-        sell_ex="b",
+        buy_ex="binance-perp",
+        sell_ex="bybit-perp",
         buy_ask=100.0,
         sell_bid=103.0,
         net_pct=3.0,
@@ -79,7 +82,7 @@ def test_open_on_signal_writes_open_file(tmp_path):
     open_w.close(); closed_w.close()
     data = json.loads((root / "paper_open.jsonl").read_text().splitlines()[0])
     assert data["symbol"] == "BTCUSDT"
-    assert data["buy_ex"] == "a"
+    assert data["buy_ex"] == "binance-perp"
     assert data["entry_spread_pct"] == 3.0
     # Nothing closed yet.
     assert (root / "paper_closed.jsonl").read_text() == ""
@@ -93,13 +96,40 @@ def test_dedup_same_signal(tmp_path):
     assert len(trader._open_trades) == 2
 
 
+def test_fee_lookup_strips_perp_suffix(tmp_path):
+    """Regression: perp exchange labels carry '-perp' suffix but the
+    fee table is keyed by bare names. If the trader doesn't strip,
+    fees silently default to 0.0 and PnL is unrealistically inflated."""
+    bus, prices, trader, clock, open_w, closed_w, root = _make(
+        tmp_path, close_threshold=0.5
+    )
+    # Entry == exit on both legs so gross PnL is zero; net PnL is
+    # ENTIRELY the fee impact. If the trader didn't strip the
+    # "-perp" suffix, fees would resolve to 0.0 and net would be 0.
+    bus.emit_arb(_sig(
+        buy_ex="binance-perp", sell_ex="bybit-perp",
+        buy_ask=100.0, sell_bid=100.0,
+    ))
+    prices["BTCUSDT"] = {
+        "binance-perp": _tick("binance-perp", bid=100.0, ask=100.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=100.0, ask=100.0),
+    }
+    trader.poll_once()
+    open_w.close(); closed_w.close()
+    data = json.loads((root / "paper_closed.jsonl").read_text().splitlines()[0])
+    # notional=100, 4 legs * 0.0004 fee = $0.16 total fees.
+    assert data["gross_pnl_usd"] == 0.0
+    assert abs(data["fee_usd"] - 0.16) < 1e-9
+    assert abs(data["net_pnl_usd"] - (-0.16)) < 1e-9
+
+
 def test_close_on_convergence(tmp_path):
     bus, prices, trader, clock, open_w, closed_w, root = _make(tmp_path, close_threshold=0.5)
     bus.emit_arb(_sig(buy_ask=100.0, sell_bid=103.0))   # 3%
     # Spread shrinks to < 0.5% — should close.
     prices["BTCUSDT"] = {
-        "a": _tick("a", bid=101.9, ask=102.0),
-        "b": _tick("b", bid=102.1, ask=102.2),
+        "binance-perp": _tick("binance-perp", bid=101.9, ask=102.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=102.1, ask=102.2),
     }
     clock.t += 30  # held 30 seconds
     trader.poll_once()
@@ -117,8 +147,8 @@ def test_no_close_if_spread_still_wide(tmp_path):
     bus, prices, trader, clock, open_w, closed_w, root = _make(tmp_path, close_threshold=0.5)
     bus.emit_arb(_sig())
     prices["BTCUSDT"] = {
-        "a": _tick("a", bid=99.0, ask=100.0),
-        "b": _tick("b", bid=103.0, ask=104.0),   # still 3% spread
+        "binance-perp": _tick("binance-perp", bid=99.0, ask=100.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=103.0, ask=104.0),  # still 3% spread
     }
     trader.poll_once()
     assert len(trader._open_trades) == 1
@@ -132,8 +162,8 @@ def test_force_close_on_expiry(tmp_path):
     bus.emit_arb(_sig())
     # Still wide, but hold timed out.
     prices["BTCUSDT"] = {
-        "a": _tick("a", bid=99.0, ask=100.0),
-        "b": _tick("b", bid=103.0, ask=104.0),
+        "binance-perp": _tick("binance-perp", bid=99.0, ask=100.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=103.0, ask=104.0),
     }
     clock.t += 61
     trader.poll_once()
@@ -169,8 +199,8 @@ def test_closed_pnl_sign(tmp_path):
     bus.emit_arb(_sig(buy_ask=100.0, sell_bid=103.0))
     # Both converge to ~101.5.
     prices["BTCUSDT"] = {
-        "a": _tick("a", bid=101.5, ask=101.5),
-        "b": _tick("b", bid=101.5, ask=101.5),
+        "binance-perp": _tick("binance-perp", bid=101.5, ask=101.5),
+        "bybit-perp":   _tick("bybit-perp",   bid=101.5, ask=101.5),
     }
     trader.poll_once()
     open_w.close(); closed_w.close()
@@ -188,8 +218,8 @@ def test_emits_close_info_event(tmp_path):
     bus.register_info(received.append)
     bus.emit_arb(_sig())
     prices["BTCUSDT"] = {
-        "a": _tick("a", bid=101.0, ask=101.0),
-        "b": _tick("b", bid=101.0, ask=101.0),
+        "binance-perp": _tick("binance-perp", bid=101.0, ask=101.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=101.0, ask=101.0),
     }
     trader.poll_once()
     notices = [e for e in received if e.kind == "notice" and "PERP CLOSED" in e.message]
