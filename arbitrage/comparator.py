@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Iterable
+from typing import Iterable, Literal
 
 from .config import FEES, MAX_AGE_MS, MIN_PROFIT_PCT
 from .normalizer import Tick
 from .settings import get_settings
+from .signals import ArbSignal, get_bus
 
 logger = logging.getLogger("arbitrage.comparator")
 
@@ -145,6 +146,22 @@ def check_and_signal(
         sell_ex,
         sell_bid,
         net_pct,
+    )
+    # Publish to the in-process bus. Consumers (Telegram notifier,
+    # persistence layer once it lands) handle fan-out. The bus is
+    # synchronous; registered handlers must not block — see `signals.py`.
+    market_lit: Literal["spot", "perp"] = "perp" if market == "perp" else "spot"
+    get_bus().emit_arb(
+        ArbSignal(
+            ts_ms=now_ms,
+            market=market_lit,
+            symbol=symbol,
+            buy_ex=buy_ex,
+            sell_ex=sell_ex,
+            buy_ask=buy_ask,
+            sell_bid=sell_bid,
+            net_pct=net_pct,
+        )
     )
 
 

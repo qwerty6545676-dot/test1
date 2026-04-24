@@ -144,7 +144,7 @@ async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
         except Exception:
             logger.exception("mexc: connection error")
 
-        await sleep_backoff(attempt)
+        await sleep_backoff(attempt, exchange=_EXCHANGE, market="spot")
         attempt += 1
 
 

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import random
+from typing import Literal
 
 from ..config import BACKOFF_JITTER_S, BACKOFF_MAX_S
+from ..signals import emit_info
 
 
 def backoff_delay(attempt: int) -> float:
@@ -19,8 +21,29 @@ def backoff_delay(attempt: int) -> float:
     return base + random.uniform(0.0, BACKOFF_JITTER_S)
 
 
-async def sleep_backoff(attempt: int) -> None:
-    await asyncio.sleep(backoff_delay(attempt))
+async def sleep_backoff(
+    attempt: int,
+    *,
+    exchange: str | None = None,
+    market: Literal["spot", "perp"] | None = None,
+) -> None:
+    """Sleep for a backoff-appropriate interval before the next connect.
+
+    Called from every listener's reconnect loop after a failure or
+    disconnect. When ``exchange`` + ``market`` are supplied, emit a
+    ``reconnect`` info event so the Telegram notifier (and any other
+    consumer) can see that this venue is flapping. ``attempt`` is
+    0-based — an ``attempt=0`` call means "the *first* attempt just
+    failed / disconnected", which is still worth reporting.
+    """
+    delay = backoff_delay(attempt)
+    if exchange is not None and market is not None:
+        emit_info(
+            "reconnect",
+            f"{exchange}: reconnecting in {delay:.1f}s (attempt {attempt + 1})",
+            market=market,
+        )
+    await asyncio.sleep(delay)
 
 
 # -------- Symbol normalization --------

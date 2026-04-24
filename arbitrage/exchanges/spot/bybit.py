@@ -244,5 +244,5 @@ async def run_bybit(
         except Exception:
             logger.exception("bybit: connection error")
 
-        await sleep_backoff(attempt)
+        await sleep_backoff(attempt, exchange=_EXCHANGE, market="spot")
         attempt += 1

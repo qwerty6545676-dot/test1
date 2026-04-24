@@ -116,5 +116,5 @@ async def run_binance(
         except Exception:
             logger.exception("binance-perp: connection error")
 
-        await sleep_backoff(attempt)
+        await sleep_backoff(attempt, exchange=_EXCHANGE, market="perp")
         attempt += 1
