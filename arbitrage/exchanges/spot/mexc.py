@@ -131,11 +131,19 @@ class MexcListener(WSListener):
         check_and_signal_spot(self._prices, symbol)
 
 
-async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
+import asyncio
+
+# MEXC documents a 30-streams-per-connection limit on the spot WS.
+# We pick a smaller value to leave headroom for the subscribe-ack
+# round-trip and for the connection's keepalive frames.
+_MAX_STREAMS_PER_CONN = 25
+
+
+async def _run_one(prices: PricesBook, symbols: tuple[str, ...], shard: int) -> None:
     attempt = 0
     while True:
         try:
-            logger.info("mexc: connecting")
+            logger.info("mexc[shard=%d]: connecting (%d symbols)", shard, len(symbols))
             transport, _listener = await ws_connect(
                 lambda: MexcListener(prices, symbols),
                 _WS_URL,
@@ -144,10 +152,32 @@ async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
             attempt = 0
             await transport.wait_disconnected()
         except Exception:
-            logger.exception("mexc: connection error")
+            logger.exception("mexc[shard=%d]: connection error", shard)
 
         await sleep_backoff(attempt, exchange=_EXCHANGE, market="spot")
         attempt += 1
+
+
+async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
+    """Run one or more parallel MEXC connections, sharded by symbol.
+
+    The 30-streams-per-connection ceiling is the only reason this
+    listener is structured differently from the others — every other
+    venue we support handles ``len(symbols)=100`` on a single WS.
+    """
+    chunks = _chunk(symbols, _MAX_STREAMS_PER_CONN)
+    if len(chunks) == 1:
+        await _run_one(prices, chunks[0], shard=0)
+        return
+    logger.info("mexc: sharding %d symbols across %d connections",
+                len(symbols), len(chunks))
+    await asyncio.gather(
+        *(_run_one(prices, c, shard=i) for i, c in enumerate(chunks))
+    )
+
+
+def _chunk(symbols: tuple[str, ...], n: int) -> list[tuple[str, ...]]:
+    return [tuple(symbols[i : i + n]) for i in range(0, len(symbols), n)]
 
 
 __all__ = ["MexcListener", "run_mexc"]

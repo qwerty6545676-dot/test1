@@ -9,9 +9,228 @@
 # Secrets (bot tokens, API keys) never live here — put them in `.env`.
 
 # -- Which symbols to track, per market type ------------------------
+#
+# These two lists are the **default ~100-pair universe** that
+# ``scripts/discover_universe.py`` produced (see ``docs/universe-100.md``
+# for the methodology and the per-venue coverage matrix). The lists
+# differ between spot and perp because cross-listing isn't symmetric:
+# some assets only trade as perp (XMR, XAUT) and some only as spot
+# (FILUSDT, COMPUSDT).
+#
+# **Cardinality + load** (assuming you keep both lists at ~100):
+# * ``arb_signals_total{market,symbol,buy_ex,sell_ex}``: ~9.8k series
+#   per market. Prometheus is fine with this; Grafana panels stay
+#   responsive.
+# * MEXC enforces 30 streams/connection so ``run_mexc`` shards across
+#   four parallel WS connections under the hood (transparent).
+# * Bybit caps ``op:subscribe`` args at 10/message so the spot listener
+#   sends 10 sub messages on connect (also transparent).
+#
+# To shrink: edit your local ``settings.yaml`` (this example never
+# gets edited in-place — it's the fallback).
 symbols:
-  spot: [BTCUSDT, ETHUSDT, SOLUSDT]
-  perp: [BTCUSDT, ETHUSDT, SOLUSDT]
+  spot:
+    - BTCUSDT
+    - ETHUSDT
+    - XRPUSDT
+    - SOLUSDT
+    - DOGEUSDT
+    - TAOUSDT
+    - DOTUSDT
+    - AAVEUSDT
+    - HYPEUSDT
+    - NEARUSDT
+    - PENGUUSDT
+    - ASTERUSDT
+    - BNBUSDT
+    - PEPEUSDT
+    - ADAUSDT
+    - UNIUSDT
+    - TRXUSDT
+    - SUIUSDT
+    - AVAXUSDT
+    - LTCUSDT
+    - LDOUSDT
+    - FILUSDT
+    - LINKUSDT
+    - APEUSDT
+    - HBARUSDT
+    - ATOMUSDT
+    - CFXUSDT
+    - ONDOUSDT
+    - SHIBUSDT
+    - ENAUSDT
+    - ORCAUSDT
+    - CYSUSDT
+    - VIRTUALUSDT
+    - BCHUSDT
+    - INJUSDT
+    - KASUSDT
+    - ORDIUSDT
+    - XPLUSDT
+    - SNEKUSDT
+    - AEROUSDT
+    - LUNCUSDT
+    - WLDUSDT
+    - AXSUSDT
+    - XLMUSDT
+    - JUPUSDT
+    - ICPUSDT
+    - PUMPUSDT
+    - SPKUSDT
+    - ARBUSDT
+    - FARTCOINUSDT
+    - ALGOUSDT
+    - CRVUSDT
+    - WIFUSDT
+    - RENDERUSDT
+    - ETHFIUSDT
+    - RAYUSDT
+    - NOTUSDT
+    - XDCUSDT
+    - OPUSDT
+    - MASKUSDT
+    - FETUSDT
+    - 0GUSDT
+    - SEIUSDT
+    - WLFIUSDT
+    - ZROUSDT
+    - APTUSDT
+    - RUNEUSDT
+    - IPUSDT
+    - BONKUSDT
+    - TIAUSDT
+    - CHZUSDT
+    - ARIAUSDT
+    - JELLYJELLYUSDT
+    - INITUSDT
+    - PLUMEUSDT
+    - SYRUPUSDT
+    - PENDLEUSDT
+    - KITEUSDT
+    - SWARMSUSDT
+    - MERLUSDT
+    - ZEREBROUSDT
+    - PROMUSDT
+    - ICNTUSDT
+    - ENJUSDT
+    - CKBUSDT
+    - COMPUSDT
+    - SKYUSDT
+    - TUSDUSDT
+    - STABLEUSDT
+    - ROBOUSDT
+    - LINEAUSDT
+    - GRASSUSDT
+    - POLUSDT
+    - ETHWUSDT
+    - SANDUSDT
+    - LUNAUSDT
+    - 2ZUSDT
+    - ZKJUSDT
+    - STOUSDT
+    - GPSUSDT
+  perp:
+    - BTCUSDT
+    - ETHUSDT
+    - SOLUSDT
+    - TAOUSDT
+    - XRPUSDT
+    - XAUTUSDT
+    - DOGEUSDT
+    - ENAUSDT
+    - ORCAUSDT
+    - XMRUSDT
+    - SUIUSDT
+    - PENGUUSDT
+    - HYPEUSDT
+    - ZECUSDT
+    - BCHUSDT
+    - LINKUSDT
+    - LDOUSDT
+    - ADAUSDT
+    - AAVEUSDT
+    - AVAXUSDT
+    - BNBUSDT
+    - HBARUSDT
+    - XLMUSDT
+    - ICPUSDT
+    - FARTCOINUSDT
+    - ASTERUSDT
+    - UNIUSDT
+    - LTCUSDT
+    - ONDOUSDT
+    - MASKUSDT
+    - SEIUSDT
+    - APEUSDT
+    - INJUSDT
+    - AXSUSDT
+    - WLDUSDT
+    - WIFUSDT
+    - APTUSDT
+    - DOTUSDT
+    - VIRTUALUSDT
+    - ARBUSDT
+    - ORDIUSDT
+    - NOTUSDT
+    - ALGOUSDT
+    - RAYUSDT
+    - ETHFIUSDT
+    - ZROUSDT
+    - CHZUSDT
+    - JUPUSDT
+    - NEARUSDT
+    - XPLUSDT
+    - PAXGUSDT
+    - SPXUSDT
+    - SHIBUSDT
+    - SPKUSDT
+    - 0GUSDT
+    - TRXUSDT
+    - BOMEUSDT
+    - MOODENGUSDT
+    - DASHUSDT
+    - SANDUSDT
+    - FLOKIUSDT
+    - PENDLEUSDT
+    - POLUSDT
+    - RUNEUSDT
+    - PNUTUSDT
+    - WLFIUSDT
+    - TIAUSDT
+    - CRVUSDT
+    - IPUSDT
+    - VELVETUSDT
+    - FETUSDT
+    - CATIUSDT
+    - RESOLVUSDT
+    - KASUSDT
+    - STOUSDT
+    - JASMYUSDT
+    - BASUSDT
+    - FOLKSUSDT
+    - AUSDT
+    - SYRUPUSDT
+    - STXUSDT
+    - AIXBTUSDT
+    - GRASSUSDT
+    - OPUSDT
+    - BBUSDT
+    - REZUSDT
+    - KERNELUSDT
+    - KAITOUSDT
+    - ETCUSDT
+    - GALAUSDT
+    - IOUSDT
+    - BERAUSDT
+    - PARTIUSDT
+    - SUSDT
+    - BLURUSDT
+    - MYXUSDT
+    - WCTUSDT
+    - RENDERUSDT
+    - ATOMUSDT
+    - ANIMEUSDT
 
 # -- Arb detection & alerting filters, per market type --------------
 # Tiers are percentage spreads (net of fees) that route the signal
