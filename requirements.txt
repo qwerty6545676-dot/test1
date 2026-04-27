@@ -4,3 +4,6 @@ msgspec>=0.18.0
 aiohttp>=3.9.0
 protobuf>=4.25.0
 PyYAML>=6.0
+# zstandard powers daily-rotated tick-log compression
+# (arbitrage/persistence/ticks.py) and the replay reader for .bin.zst.
+zstandard>=0.22.0

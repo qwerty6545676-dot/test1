@@ -40,6 +40,7 @@ import aiohttp
 import msgspec
 from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 
+from ...persistence.ticks import record_tick
 from ...comparator import PricesBook, check_and_signal_spot
 from ...normalizer import Tick, validate_tick
 from ...ratelimit import AsyncTokenBucket
@@ -181,6 +182,7 @@ class KuCoinListener(WSListener):
             book = {}
             self._prices[canonical] = book
         book[_EXCHANGE] = tick
+        record_tick(tick, "spot")
 
         check_and_signal_spot(self._prices, canonical)
 

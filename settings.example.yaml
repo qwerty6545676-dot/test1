@@ -120,3 +120,12 @@ paper_trading:
 persistence:
   enabled: true
   signals_path: "data/signals.jsonl"
+  # Binary append-only tick log used by `python -m arbitrage.replay`
+  # for backtests / parameter tuning. Off by default — at 7 venues x
+  # 2 markets traffic this is ~250 MB / day after zstd compression
+  # (~1 GB / day raw). Enable when you want a replay corpus.
+  tick_storage:
+    enabled: false
+    root: "data/ticks"
+    compress: true                # rotate-and-zstd-compress old daily files
+    retention_days: 7             # delete files older than this
