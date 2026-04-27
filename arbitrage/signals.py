@@ -38,6 +38,7 @@ InfoKind = Literal[
     "recovery",
     "reconnect",
     "notice",
+    "watchdog",
 ]
 Severity = Literal["info", "warn", "error"]
 

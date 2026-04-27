@@ -83,3 +83,20 @@ def test_format_info_escapes_message():
     ev = InfoEvent(ts_ms=0, kind="error", message="<b>boom</b>")
     text = format_info(ev)
     assert "&lt;b&gt;boom&lt;/b&gt;" in text
+
+
+def test_format_info_watchdog_kind_renders_with_dedicated_emoji():
+    """Regression: watchdog crash/restart events are operationally
+    important and must not fall back to the generic bullet."""
+    ev = InfoEvent(
+        ts_ms=0,
+        kind="watchdog",
+        message="binance-spot: crashed (RuntimeError: boom), restart #1",
+        market="spot",
+        severity="error",
+    )
+    text = format_info(ev)
+    assert "•" not in text  # no fallback bullet
+    assert "🐕" in text
+    assert "WATCHDOG" in text
+    assert "[spot]" in text

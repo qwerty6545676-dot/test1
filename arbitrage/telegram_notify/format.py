@@ -22,6 +22,7 @@ _EMOJI_BY_KIND: dict[str, str] = {
     "recovery": "✅",
     "reconnect": "🔁",
     "notice": "ℹ️",
+    "watchdog": "🐕",
 }
 
 
