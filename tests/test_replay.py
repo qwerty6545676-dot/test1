@@ -57,6 +57,28 @@ def test_discover_files_returns_chronological(tmp_path):
     ]
 
 
+def test_discover_files_dedupes_when_both_formats_exist(tmp_path):
+    """If a crash leaves both ``ticks-D.bin`` and ``ticks-D.bin.zst``
+    for the same date, replay must process the day exactly once. The
+    .bin is preferred since it's the source of truth — the .zst can
+    be partial when compression was interrupted.
+    """
+    plain = tmp_path / "ticks-2025-04-22.bin"
+    plain.write_bytes(b"")
+    compressed = tmp_path / "ticks-2025-04-22.bin.zst"
+    compressed.write_bytes(b"")
+
+    # Same scenario but a different date with only the .zst — replay
+    # should still pick it up.
+    (tmp_path / "ticks-2025-04-21.bin.zst").write_bytes(b"")
+
+    files = discover_files(tmp_path)
+    assert [p.name for p in files] == [
+        "ticks-2025-04-21.bin.zst",
+        "ticks-2025-04-22.bin",
+    ]
+
+
 def test_discover_files_filters_date_range(tmp_path):
     for d in ["2025-04-20", "2025-04-21", "2025-04-22", "2025-04-23"]:
         (tmp_path / f"ticks-{d}.bin").write_bytes(b"")

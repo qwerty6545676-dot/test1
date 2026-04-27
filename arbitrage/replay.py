@@ -105,12 +105,20 @@ def discover_files(
     start: date | None = None,
     end: date | None = None,
 ) -> list[Path]:
-    """Return ``ticks-*.bin[.zst]`` files in chronological order.
+    """Return ``ticks-*.bin[.zst]`` files in chronological order, one
+    per date.
 
     ``start`` and ``end`` are inclusive UTC dates; ``None`` means
     unbounded.
+
+    If both ``ticks-D.bin`` and ``ticks-D.bin.zst`` exist for the same
+    date ``D`` (the transient state during background compression, or
+    the persistent state after a crash mid-compress) the ``.bin`` is
+    preferred — it's the source of truth and is guaranteed complete,
+    while the ``.zst`` may be partially-written. Replaying both would
+    double-count every tick of that day.
     """
-    out: list[tuple[date, Path]] = []
+    by_date: dict[date, Path] = {}
     for entry in root.iterdir():
         name = entry.name
         if not name.startswith("ticks-"):
@@ -125,9 +133,19 @@ def discover_files(
             continue
         if end is not None and d > end:
             continue
-        out.append((d, entry))
-    out.sort(key=lambda p: (p[0], p[1].name))
-    return [p for _, p in out]
+
+        existing = by_date.get(d)
+        if existing is None:
+            by_date[d] = entry
+            continue
+        # Tie-break: prefer the .bin (source of truth) over the .zst
+        # (possibly partial after an interrupted compression).
+        if entry.suffix == ".bin" and existing.suffix == ".zst":
+            by_date[d] = entry
+        # else keep `existing` (already .bin, or both .zst — second .zst
+        # is a duplicate rename which doesn't happen in normal flow)
+
+    return [by_date[d] for d in sorted(by_date)]
 
 
 def _record_to_tick(rec: TickRecord) -> Tick:
