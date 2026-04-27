@@ -251,9 +251,12 @@ SOURCES: list[Source] = [
 ]
 
 
+_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=20)
+
+
 async def _fetch(session: aiohttp.ClientSession, src: Source) -> tuple[Source, list[tuple[str, float]]]:
     try:
-        async with session.get(src.url, headers=src.headers, timeout=20) as resp:
+        async with session.get(src.url, headers=src.headers, timeout=_FETCH_TIMEOUT) as resp:
             payload = await resp.json(content_type=None)
         rows = src.extractor(payload)
         # Filter out zero-volume entries: they distort the rank when
