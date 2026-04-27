@@ -143,3 +143,27 @@ def test_check_and_signal_perp_labels_log(caplog):
         comparator.FEES_PERP, comparator.MIN_PROFIT_PCT_PERP = old_fees, old_min
 
     assert any("[perp]" in r.message and "BTCUSDT" in r.message for r in caplog.records)
+
+
+def test_find_arbitrage_strips_perp_suffix_from_fee_lookup():
+    """Perp exchange labels carry a '-perp' suffix ("binance-perp")
+    but settings.yaml fees use bare names. The comparator must
+    strip the suffix before looking up the fee or net_pct will be
+    over-reported (fees silently default to 0.0)."""
+    now = int(time.time() * 1000)
+    # Book keyed by suffixed labels, as the real perp listeners emit.
+    book = {
+        "binance-perp": _tick("binance-perp", bid=99.95, ask=100.0, ts_local=now),
+        "bybit-perp":   _tick("bybit-perp",   bid=100.0,  ask=100.05, ts_local=now),
+    }
+    # Bare-name fee table as loaded from settings.yaml.
+    fees = {"binance": 0.002, "bybit": 0.002}
+
+    # Spread is tiny (~0.05%) and 0.4% round-trip fees eat it.
+    # If the suffix is NOT stripped, fees.get("binance-perp", 0.0)
+    # returns 0, effective prices collapse, and net_pct falsely
+    # clears the 0.01% threshold.
+    from arbitrage.comparator import find_arbitrage
+
+    hit = find_arbitrage(book, "BTCUSDT", now, fees=fees, min_pct=0.01, max_age_ms=5_000)
+    assert hit is None, f"suffix not stripped — false hit: {hit!r}"

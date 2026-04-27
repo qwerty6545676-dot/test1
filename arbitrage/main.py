@@ -24,6 +24,7 @@ import uvloop
 
 from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
+from .paper import PaperTradesWriter, PerpPaperTrader, SpotPaperTrader
 from .settings import Settings, get_settings, get_telegram_bot_token
 from .signals import InfoEvent, get_bus
 from .telegram_notify import TelegramClient, TelegramNotifier
@@ -90,6 +91,35 @@ async def _run() -> None:
 
     tg = await _setup_telegram(settings)
     bus = get_bus()
+
+    paper_open_writer: PaperTradesWriter | None = None
+    paper_closed_writer: PaperTradesWriter | None = None
+    paper_perp_trader: PerpPaperTrader | None = None
+    if settings.paper_trading.enabled:
+        paper_open_writer = PaperTradesWriter(settings.paper_trading.open_path)
+        paper_closed_writer = PaperTradesWriter(settings.paper_trading.closed_path)
+        paper_open_writer.open()
+        paper_closed_writer.open()
+
+        SpotPaperTrader(
+            bus, settings.fees,
+            closed_writer=paper_closed_writer,
+            notional_per_leg_usd=settings.paper_trading.spot.notional_per_leg_usd,
+            slippage_pct=settings.paper_trading.spot.slippage_pct,
+        ).attach()
+
+        paper_perp_trader = PerpPaperTrader(
+            bus, settings.fees, prices_perp,
+            open_writer=paper_open_writer,
+            closed_writer=paper_closed_writer,
+            notional_per_leg_usd=settings.paper_trading.perp.notional_per_leg_usd,
+            close_threshold_pct=settings.paper_trading.perp.close_threshold_pct,
+            max_hold_seconds=settings.paper_trading.perp.max_hold_seconds,
+            slippage_pct=settings.paper_trading.perp.slippage_pct,
+            poll_interval_s=settings.paper_trading.perp.poll_interval_s,
+        )
+        paper_perp_trader.attach()
+
     bus.emit_info(
         InfoEvent(
             ts_ms=_now_ms(),
@@ -168,6 +198,12 @@ async def _run() -> None:
         ),
     ]
 
+    # ---- Paper-trading poll (perp convergence watcher) -----------
+    if paper_perp_trader is not None:
+        tasks.append(
+            asyncio.create_task(paper_perp_trader.run(), name="paper-perp-poll")
+        )
+
     stop_event = asyncio.Event()
 
     def _stop() -> None:
@@ -203,6 +239,10 @@ async def _run() -> None:
             # then tear it down. 1s is plenty for a single HTTP POST.
             await asyncio.sleep(1.0)
             await tg[0].stop()
+        if paper_open_writer is not None:
+            paper_open_writer.close()
+        if paper_closed_writer is not None:
+            paper_closed_writer.close()
 
 
 def _now_ms() -> int:

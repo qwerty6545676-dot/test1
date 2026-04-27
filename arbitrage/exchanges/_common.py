@@ -82,3 +82,29 @@ def from_native(native: str, separator: str) -> str:
     if not separator:
         return native
     return native.replace(separator, "")
+
+
+# -------- Exchange-label helpers --------
+#
+# Perp listeners label themselves with a "-perp" suffix so that spot
+# and perp ticks can share one `PricesBook` keyed by exchange without
+# colliding. The user-facing `settings.yaml` still uses bare names
+# ("binance") under both `fees.spot` and `fees.perp` because that's
+# how humans think about them. This helper bridges the two.
+
+
+def base_exchange(ex: str) -> str:
+    """Strip market suffix from an exchange label.
+
+    >>> base_exchange("binance-perp")
+    'binance'
+    >>> base_exchange("binance")
+    'binance'
+
+    Used at every fee-table lookup: callers pass raw `Tick.exchange` /
+    `ArbSignal.buy_ex` values, and the helper returns the bare name
+    that matches `settings.fees.{spot,perp}` keys.
+    """
+    if ex.endswith("-perp"):
+        return ex[:-5]
+    return ex

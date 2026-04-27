@@ -152,14 +152,14 @@ async def test_attempt_counter_resets_on_successful_handshake(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    # Expect: attempt counter 0,1,2 for first three fails, 0 after the
-    # successful handshake, 0 for the "fail" right after that (because
-    # attempt was reset to 0 before wait_disconnected, but NOT after —
-    # read the loop carefully: reset happens *before* wait_disconnected,
-    # so the next iteration starts at 0 regardless). We only assert
-    # that we saw at least one reset to 0 *after* a non-zero value.
+    # Expected sequence of sleep_backoff(attempt) calls: [0, 1, 2, 0, 1].
+    # Fails 1..3 see the counter growing (0, 1, 2). After the clean
+    # handshake on step 4, attempt is reset to 0 and sleep_backoff(0)
+    # fires — then the counter is incremented to 1 before the next
+    # loop iteration, so the step-5 fail sees attempt=1. The reset
+    # to 0 after the non-zero run is the meaningful invariant.
     assert any(a > 0 for a in sleeps)
-    assert sleeps[-1] == 0 or sleeps[-2] == 0
+    assert 0 in sleeps[3:]
 
 
 @pytest.mark.asyncio

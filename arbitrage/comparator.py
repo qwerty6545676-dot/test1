@@ -18,6 +18,7 @@ import time
 from typing import Iterable, Literal
 
 from .config import FEES, MAX_AGE_MS, MIN_PROFIT_PCT
+from .exchanges._common import base_exchange
 from .normalizer import Tick
 from .settings import get_settings
 from .signals import ArbSignal, get_bus
@@ -85,7 +86,9 @@ def find_arbitrage(
         sell_bid = sell.bid
         if sell_bid <= 0.0:
             continue
-        fee_sell = fees.get(sell_ex, 0.0)
+        # Strip any "-perp" suffix — fee tables in settings.yaml use
+        # bare names, while exchange labels carry the market suffix.
+        fee_sell = fees.get(base_exchange(sell_ex), 0.0)
         effective_sell = sell_bid * (1.0 - fee_sell)
 
         for buy_ex, buy in book.items():
@@ -96,7 +99,7 @@ def find_arbitrage(
             buy_ask = buy.ask
             if buy_ask <= 0.0:
                 continue
-            fee_buy = fees.get(buy_ex, 0.0)
+            fee_buy = fees.get(base_exchange(buy_ex), 0.0)
             effective_buy = buy_ask * (1.0 + fee_buy)
             if effective_buy <= 0.0:
                 continue
