@@ -89,14 +89,20 @@ async def test_recovery_emits_after_silence(monkeypatch):
             prices,
             label="spot",
             expected_exchanges=("binance",),
-            silence_threshold_ms=1,
+            # 20ms threshold gives the recovery transition a real
+            # margin: a tick injected at ``time.time()`` will satisfy
+            # ``now_ms - tick.ts_local < 20`` for several iterations,
+            # whereas threshold=1 only recovers if the iteration
+            # happens within the same ms as the injection (race).
+            silence_threshold_ms=20,
         )
     )
     # First tick: no data from binance at all -> silence.
-    await asyncio.sleep(0.03)
+    # Wait long enough that gap_ms >= 20.
+    await asyncio.sleep(0.04)
     # Now inject a fresh tick -> the next iteration should recover.
     prices["BTCUSDT"]["binance"] = _tick("binance", int(time.time() * 1000))
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.04)
 
     task.cancel()
     try:

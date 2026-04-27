@@ -232,12 +232,14 @@ class TelegramClient:
 
             except aiohttp.ClientError as exc:
                 attempt += 1
+                metrics.record_telegram_retry("network")
                 if attempt >= self._max_attempts:
                     logger.error(
                         "telegram: client error giving up after %d attempts: %s",
                         attempt,
                         exc,
                     )
+                    metrics.record_telegram_dropped()
                     return
                 backoff = min(2.0 ** (attempt - 1), self._max_backoff_s)
                 logger.warning(

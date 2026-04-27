@@ -164,8 +164,17 @@ async def _run() -> None:
     )
 
     def _spot_task(name: str, runner):  # type: ignore[no-untyped-def]
+        # ``name`` is e.g. "binance-spot"; the metrics convention for
+        # spot is the bare exchange ("binance") so the dashboard can
+        # correlate watchdog_restarts_total with listener_last_tick_age_seconds.
+        exchange = name.removesuffix("-spot")
         return asyncio.create_task(
-            supervise(name, lambda: runner(prices_spot, spot_symbols), market="spot"),
+            supervise(
+                name,
+                lambda: runner(prices_spot, spot_symbols),
+                market="spot",
+                exchange=exchange,
+            ),
             name=name,
         )
 
@@ -191,8 +200,15 @@ async def _run() -> None:
     )
 
     def _perp_task(name: str, runner):  # type: ignore[no-untyped-def]
+        # ``name`` is already "binance-perp" — matches the perp
+        # heartbeat exchange-label convention as-is.
         return asyncio.create_task(
-            supervise(name, lambda: runner(prices_perp, perp_symbols), market="perp"),
+            supervise(
+                name,
+                lambda: runner(prices_perp, perp_symbols),
+                market="perp",
+                exchange=name,
+            ),
             name=name,
         )
 
