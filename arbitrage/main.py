@@ -26,7 +26,7 @@ from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
 from .paper import PaperTradesWriter, PerpPaperTrader, SpotPaperTrader
 from . import metrics
-from .persistence import SignalsWriter
+from .persistence import SignalsWriter, TickWriter, attach_writer as attach_tick_writer
 from .settings import Settings, get_settings, get_telegram_bot_token
 from .signals import InfoEvent, get_bus
 from .telegram_notify import TelegramClient, TelegramNotifier
@@ -124,10 +124,20 @@ async def _run() -> None:
         paper_perp_trader.attach()
 
     signals_writer: SignalsWriter | None = None
+    tick_writer: TickWriter | None = None
     if settings.persistence.enabled:
         signals_writer = SignalsWriter(settings.persistence.signals_path)
         signals_writer.open()
         signals_writer.attach(bus)
+        ts = settings.persistence.tick_storage
+        if ts.enabled:
+            tick_writer = TickWriter(
+                ts.root,
+                compress=ts.compress,
+                retention_days=ts.retention_days,
+            )
+            tick_writer.open()
+            attach_tick_writer(tick_writer)
 
     if settings.metrics.enabled:
         metrics.start_metrics_server(
@@ -289,6 +299,9 @@ async def _run() -> None:
             paper_closed_writer.close()
         if signals_writer is not None:
             signals_writer.close()
+        if tick_writer is not None:
+            attach_tick_writer(None)
+            tick_writer.close()
 
 
 def _now_ms() -> int:

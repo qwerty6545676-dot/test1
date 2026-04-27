@@ -102,11 +102,25 @@ class PaperTradingConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True
     perp: PaperPerpConfig = msgspec.field(default_factory=PaperPerpConfig)
 
 
+class TickStorageConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Binary append-only log of raw ticks, for backtest / replay.
+
+    Disk usage at 7 venues × 2 markets × ~1 update/s/symbol/venue is
+    ~250 MB/day after zstd compression, ~1 GB/day raw. Off by default.
+    """
+
+    enabled: bool = False
+    root: str = "data/ticks"
+    compress: bool = True       # rotate-and-zstd-compress old daily files
+    retention_days: int = 7     # delete daily files older than this
+
+
 class PersistenceConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
-    """Where to write the append-only logs of detected signals."""
+    """Where to write the append-only logs of detected signals + ticks."""
 
     enabled: bool = False
     signals_path: str = "data/signals.jsonl"
+    tick_storage: TickStorageConfig = msgspec.field(default_factory=TickStorageConfig)
 
 
 class MetricsConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):

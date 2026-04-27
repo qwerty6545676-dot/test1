@@ -13,7 +13,7 @@
 6. [Как читать логи](#как-читать-логи)
 7. [Telegram-алёрты](#telegram-алёрты)
 8. [Анализ сигналов](#анализ-сигналов)
-9. [Backtest и replay](#backtest-и-replay) *(планируется)*
+9. [Backtest и replay](#backtest-и-replay)
 10. [Paper trading](#paper-trading)
 11. [Production-деплой](#production-деплой) *(планируется)*
 12. [Troubleshooting](#troubleshooting)
@@ -521,8 +521,7 @@ Cooldown (по умолчанию **3 минуты**) — по ключу
 
 ## Анализ сигналов
 
-**Статус:** ✅ Реализовано (signals.jsonl). Ticks.bin + backtest — в
-следующем PR.
+**Статус:** ✅ Реализовано (signals.jsonl + ticks.bin + replay).
 
 Путь файла настраивается: `persistence.signals_path` в
 `settings.yaml` (дефолт `data/signals.jsonl`). Если
@@ -700,40 +699,98 @@ ARB_METRICS_DISABLED=1 python -m arbitrage.main
 
 ## Backtest и replay
 
-**Статус:** 🚧 Будет с Persistence-PR.
+**Статус:** ✅ Реализовано.
 
 ### Что это
 
-Сохраняем все тики в бинарный файл `ticks.bin.zst` (msgspec +
-zstd компрессия, ~250 МБ/сутки). Отдельный скрипт эмулирует
-входящий поток через comparator и выдаёт сигналы, как будто это
-происходит live.
+Бот пишет каждый принятый тик (со всех 14 листенеров) в бинарный
+лог `data/ticks/ticks-YYYY-MM-DD.bin`. В UTC-полночь файл ротируется,
+старый файл сжимается **zstd** в фоновом таске и удаляется
+несжатый (`ticks-YYYY-MM-DD.bin.zst`). Файлы старше
+`retention_days` дней удаляются автоматически при запуске.
+
+Формат: длинно-префиксированный msgpack (`[4-байтная длина][тело]`).
+Не читается человеком, зато дёшев и ~4× меньше JSON-Lines после
+zstd. Для grep/jq используй `signals.jsonl`, ticks-лог — это
+*входной корпус* для replay.
+
+Объёмы (ориентир, при 7 биржах × 2 рынка × 3 символа):
+- raw: ~1 ГБ/день
+- zstd: ~250 МБ/день
+- 7 дней истории: ~1.7 ГБ диска
 
 ### Зачем
 
 - **Тюнинг порогов.** "Если бы я поставил `min_profit_pct = 2.5`
   вместо 3.0 — сколько бы сигналов в сутки добавилось? Какого
-  качества?"
+  качества?" — правишь `settings.yaml`, делаешь replay, считаешь
+  строки в `signals.jsonl`. Не надо ждать сутки live-данных.
 - **Проверка нового кода.** "Добавил новый фильтр по BBO notional —
-  не сломал ли существующую логику?"
+  не сломал ли существующую логику?" — replay недели данных
+  занимает ~10 минут.
 - **Разбор инцидентов.** "Вчера в 14:32 был жирный сигнал — почему
-  бот его не заметил?"
+  бот его не заметил?" — replay узкого окна с `--from --to` и
+  `--speed 1` (realtime), смотришь логи.
+- **Backtest paper-trading.** Подключаешь paper-трейдеры в
+  `settings.yaml`, прогоняешь неделю — получаешь корпус
+  `paper_closed.jsonl` с реализованным PnL для статистики.
 
-### Как пользоваться
+### Включение записи
 
-```bash
-# Прогон за вчера с настройками из settings.live.yaml
-python -m arbitrage.replay \
-    --ticks data/ticks-2024-01-15.bin.zst \
-    --settings settings.live.yaml \
-    --output signals-replay.jsonl
-
-# Сравнение с реальными сигналами того же дня
-diff <(jq -c '.' data/signals-2024-01-15.jsonl | sort) \
-     <(jq -c '.' signals-replay.jsonl | sort)
+В `settings.yaml`:
+```yaml
+persistence:
+  enabled: true
+  signals_path: "data/signals.jsonl"
+  tick_storage:
+    enabled: true                # off by default — занимает диск
+    root: "data/ticks"
+    compress: true               # zstd сжатие старых дней (рекомендую)
+    retention_days: 7            # удалять файлы старше N дней
 ```
 
-Скорость: ~60× realtime. Сутки проходят за ~24 минуты.
+Файлы появятся через несколько минут после старта в
+`data/ticks/`.
+
+### Как replay'ить
+
+```bash
+# Весь корпус с настройками из текущего settings.yaml
+python -m arbitrage.replay --root data/ticks
+
+# Только за выбранные дни
+python -m arbitrage.replay \
+    --root data/ticks \
+    --from 2025-04-20 \
+    --to 2025-04-22
+
+# В realtime скорости (для paper-trading имитации)
+python -m arbitrage.replay --root data/ticks --speed 1
+
+# В 10× быстрее реального времени
+python -m arbitrage.replay --root data/ticks --speed 10
+```
+
+`--speed 0` (по умолчанию) = "как можно быстрее", все тики
+проходят через comparator подряд. На современном CPU — сутки
+данных за ~10 минут.
+
+### Замена параметров без рестарта прода
+
+Один общий приём:
+
+```bash
+cp settings.yaml settings.replay.yaml
+# меняешь min_profit_pct, fees, тиры — что хочешь
+ARB_SETTINGS_PATH=settings.replay.yaml \
+  python -m arbitrage.replay --root data/ticks > replay.log
+grep "ARB \[spot\]" replay.log | wc -l   # сколько было бы
+```
+
+Прод не трогается, signals.jsonl продолжает расти live, replay
+эмитит сигналы в *тот же* `signals.jsonl` — будь осторожен,
+делай отдельный path в replay-config'е (`signals_path:
+data/signals-replay.jsonl`).
 
 ---
 
