@@ -106,4 +106,5 @@ paper_trading:
     notional_per_leg_usd: 50.0
     close_threshold_pct: 0.5       # close when spread drops below this
     max_hold_seconds: 86400        # force-close after 24h
+    slippage_pct: 0.03             # haircut on each exit leg, in percent
     poll_interval_s: 1.0           # how often to check open positions

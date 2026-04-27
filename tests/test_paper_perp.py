@@ -55,7 +55,7 @@ def _tick(exchange: str, bid: float, ask: float, ts_ms: int = 1_700_000_000_000)
     )
 
 
-def _make(tmp_path, *, close_threshold=0.5, max_hold=86400):
+def _make(tmp_path, *, close_threshold=0.5, max_hold=86400, slippage_pct=0.0):
     bus = SignalBus()
     prices = {}
     open_w = PaperTradesWriter(tmp_path / "paper_open.jsonl")
@@ -69,6 +69,7 @@ def _make(tmp_path, *, close_threshold=0.5, max_hold=86400):
         notional_per_leg_usd=100.0,
         close_threshold_pct=close_threshold,
         max_hold_seconds=max_hold,
+        slippage_pct=slippage_pct,
         poll_interval_s=0.01,
         now=clock,
     )
@@ -237,3 +238,65 @@ def test_poll_noop_when_no_open_trades(tmp_path):
     bus, prices, trader, *_ = _make(tmp_path)
     # Should not raise.
     trader.poll_once()
+
+
+def test_exit_fills_use_unfavorable_side_of_book(tmp_path):
+    """Regression: closing the long leg sells at the buy-venue *bid*
+    (not ask), and closing the short leg buys back at the sell-venue
+    *ask* (not bid). Using the favorable side on both legs would
+    silently inflate paper PnL by ~half a spread per leg.
+
+    Setup: entry at 100/103 (3% spread, $100 notional/leg).
+    At close time both books quote 101.0 / 102.0 (1.0 wide each):
+      - Convergence check uses (sell.bid - buy.ask)/buy.ask =
+        (101.0 - 102.0)/102.0 = -0.98%, which is <= 0.5% -> close.
+      - WRONG model: long sells at buy.ask=102.0 (+$2 long-leg PnL),
+        short buys back at sell.bid=101.0 (+$1.94 short-leg PnL),
+        gross = $3.94 — clearly inflated.
+      - CORRECT model: long sells at buy.bid=101.0 (+$1 long-leg),
+        short buys back at sell.ask=102.0 (+$0.97 short-leg),
+        gross ≈ $1.97. Exactly half the wrong number, modulo qty.
+    """
+    bus, prices, trader, clock, open_w, closed_w, root = _make(
+        tmp_path, close_threshold=0.5
+    )
+    bus.emit_arb(_sig(buy_ask=100.0, sell_bid=103.0))
+    prices["BTCUSDT"] = {
+        "binance-perp": _tick("binance-perp", bid=101.0, ask=102.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=101.0, ask=102.0),
+    }
+    trader.poll_once()
+    open_w.close(); closed_w.close()
+    data = json.loads((root / "paper_closed.jsonl").read_text().splitlines()[0])
+    # exit_buy is the long-leg sell fill: must be the bid (101.0),
+    # NOT the favorable ask (102.0).
+    assert data["exit_buy"] == 101.0
+    # exit_sell is the short-leg cover fill: must be the ask (102.0),
+    # NOT the favorable bid (101.0).
+    assert data["exit_sell"] == 102.0
+    # qty_long = 100/100 = 1.0; long_pnl = 1.0 * (101 - 100) = 1.0
+    # qty_short = 100/103 ≈ 0.9709; short_pnl ≈ 0.9709 * (103 - 102) ≈ 0.9709
+    # gross ≈ 1.9709 (NOT ~3.94 which the buggy version would yield)
+    assert 1.9 <= data["gross_pnl_usd"] <= 2.0
+
+
+def test_slippage_pct_is_applied_at_close(tmp_path):
+    """When ``slippage_pct`` is set, net PnL must be reduced by
+    ``notional * slippage_pct/100 * 2`` (one haircut per exit leg)."""
+    bus, prices, trader, clock, open_w, closed_w, root = _make(
+        tmp_path, close_threshold=0.5, slippage_pct=0.03,
+    )
+    # Entry == exit on every side: gross = 0, fees = 0.16, slippage =
+    # 100 * 0.03/100 * 2 = 0.06, net = -0.22.
+    bus.emit_arb(_sig(buy_ask=100.0, sell_bid=100.0))
+    prices["BTCUSDT"] = {
+        "binance-perp": _tick("binance-perp", bid=100.0, ask=100.0),
+        "bybit-perp":   _tick("bybit-perp",   bid=100.0, ask=100.0),
+    }
+    trader.poll_once()
+    open_w.close(); closed_w.close()
+    data = json.loads((root / "paper_closed.jsonl").read_text().splitlines()[0])
+    assert data["gross_pnl_usd"] == 0.0
+    # fees ($0.16) + slippage ($0.06) rolled into fee_usd, like spot.
+    assert abs(data["fee_usd"] - 0.22) < 1e-9
+    assert abs(data["net_pnl_usd"] - (-0.22)) < 1e-9

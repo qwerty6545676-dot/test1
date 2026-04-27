@@ -115,6 +115,7 @@ async def _run() -> None:
             notional_per_leg_usd=settings.paper_trading.perp.notional_per_leg_usd,
             close_threshold_pct=settings.paper_trading.perp.close_threshold_pct,
             max_hold_seconds=settings.paper_trading.perp.max_hold_seconds,
+            slippage_pct=settings.paper_trading.perp.slippage_pct,
             poll_interval_s=settings.paper_trading.perp.poll_interval_s,
         )
         paper_perp_trader.attach()

@@ -90,6 +90,7 @@ class PaperPerpConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     notional_per_leg_usd: float = 50.0
     close_threshold_pct: float = 0.5
     max_hold_seconds: int = 86_400
+    slippage_pct: float = 0.03
     poll_interval_s: float = 1.0
 
 
