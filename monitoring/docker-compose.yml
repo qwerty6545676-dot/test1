@@ -1,0 +1,53 @@
+# 5-minute path from "I have a running scanner" to "I have a Grafana
+# dashboard". The scanner itself stays on the host (it needs picows
+# native sockets and your settings.yaml) — only Prometheus and
+# Grafana run in containers.
+#
+# Usage:
+#   1. Enable metrics in settings.yaml: metrics.enabled: true,
+#      bind_addr: "0.0.0.0" (so Docker can reach the host's port).
+#   2. Run the scanner on the host: ``python -m arbitrage.main``
+#   3. From this directory: ``docker compose up -d``
+#   4. Open http://localhost:3000 (admin / admin), then
+#      Dashboards → Import → Upload JSON file → grafana_dashboard.json.
+#
+# The Prometheus retention is intentionally short (15d) — scrape
+# storage adds up fast. For long-term archival, configure remote_write
+# to a managed TSDB.
+
+version: "3.9"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9091:9090"  # host:9091 -> container:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    extra_hosts:
+      # Lets Prometheus reach the scanner running on the host.
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prom_data: {}
+  grafana_data: {}

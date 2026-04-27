@@ -109,6 +109,19 @@ class PersistenceConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True)
     signals_path: str = "data/signals.jsonl"
 
 
+class MetricsConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Prometheus scrape endpoint. Off by default — only exposes the
+    same data we already log, but it's a network surface and metric
+    cardinality should be reviewed before enabling on a public host.
+    """
+
+    enabled: bool = False
+    port: int = 9090
+    # Bind to 127.0.0.1 by default — operators must explicitly opt
+    # in to expose /metrics on a public interface, since it leaks
+    # the symbol universe and venue line-up.
+    bind_addr: str = "127.0.0.1"
+
 
 class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Root config object. Immutable once loaded."""
@@ -120,6 +133,7 @@ class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     telegram: TelegramConfig = msgspec.field(default_factory=TelegramConfig)
     paper_trading: PaperTradingConfig = msgspec.field(default_factory=PaperTradingConfig)
     persistence: PersistenceConfig = msgspec.field(default_factory=PersistenceConfig)
+    metrics: MetricsConfig = msgspec.field(default_factory=MetricsConfig)
 
     # Where in the filesystem did this come from? Useful for log lines.
     _source_path: ClassVar[str] = ""

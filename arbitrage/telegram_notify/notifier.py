@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 
+from .. import metrics
 from ..cooldown import CooldownTracker
 from ..settings import Settings
 from ..signals import ArbSignal, InfoEvent, SignalBus
@@ -66,6 +67,7 @@ class TelegramNotifier:
     def _on_arb(self, sig: ArbSignal) -> None:
         tracker = self._cd_spot if sig.market == "spot" else self._cd_perp
         if not tracker.should_emit(sig.key):
+            metrics.record_arb_suppressed(sig.market)
             return
 
         chat_id = self._chat_for_market(sig.market)
@@ -77,9 +79,10 @@ class TelegramNotifier:
         if routed is None:
             # Spread fell into a gap between configured tiers — silenced.
             return
-        _tier_name, topic_id = routed
+        tier_name, topic_id = routed
 
         self._client.enqueue(chat_id, topic_id, format_arb(sig))
+        metrics.record_arb_routed(sig.market, tier_name)
 
     # ------------------------------------------------------------------
     # Info events

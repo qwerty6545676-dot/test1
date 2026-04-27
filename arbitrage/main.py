@@ -25,6 +25,7 @@ import uvloop
 from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
 from .paper import PaperTradesWriter, PerpPaperTrader, SpotPaperTrader
+from . import metrics
 from .persistence import SignalsWriter
 from .settings import Settings, get_settings, get_telegram_bot_token
 from .signals import InfoEvent, get_bus
@@ -127,6 +128,12 @@ async def _run() -> None:
         signals_writer = SignalsWriter(settings.persistence.signals_path)
         signals_writer.open()
         signals_writer.attach(bus)
+
+    if settings.metrics.enabled:
+        metrics.start_metrics_server(
+            port=settings.metrics.port,
+            addr=settings.metrics.bind_addr,
+        )
 
 
     bus.emit_info(

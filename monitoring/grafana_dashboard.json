@@ -1,0 +1,189 @@
+{
+  "title": "Arbitrage Scanner",
+  "uid": "arbitrage-scanner",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["arbitrage", "crypto"],
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "10s",
+  "templating": {
+    "list": [
+      {
+        "name": "market",
+        "type": "custom",
+        "query": "spot,perp",
+        "current": {"text": "All", "value": "$__all"},
+        "options": [
+          {"text": "All", "value": "$__all", "selected": true},
+          {"text": "spot", "value": "spot"},
+          {"text": "perp", "value": "perp"}
+        ],
+        "includeAll": true,
+        "multi": true,
+        "label": "market"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Signal rate (per second, by market)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (market) (rate(arb_signals_total{market=~\"$market\"}[1m]))",
+          "legendFormat": "{{market}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Net spread distribution (P50 / P95 / P99)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, market) (rate(arb_signal_net_pct_bucket{market=~\"$market\"}[5m])))",
+          "legendFormat": "p50 {{market}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, market) (rate(arb_signal_net_pct_bucket{market=~\"$market\"}[5m])))",
+          "legendFormat": "p95 {{market}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, market) (rate(arb_signal_net_pct_bucket{market=~\"$market\"}[5m])))",
+          "legendFormat": "p99 {{market}}",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Top 10 (buy_ex, sell_ex, symbol) signal generators",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "topk(10, sum by (market, symbol, buy_ex, sell_ex) (rate(arb_signals_total{market=~\"$market\"}[5m])))",
+          "legendFormat": "{{market}} {{symbol}} {{buy_ex}}->{{sell_ex}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Listener age (seconds since last tick)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "listener_last_tick_age_seconds{market=~\"$market\"}",
+          "legendFormat": "{{market}} {{exchange}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 30}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Reconnect / watchdog activity",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "expr": "sum by (market, exchange) (rate(listener_reconnects_total{market=~\"$market\"}[5m]))",
+          "legendFormat": "reconn {{market}} {{exchange}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (market, exchange) (rate(watchdog_restarts_total{market=~\"$market\"}[5m]))",
+          "legendFormat": "wd {{market}} {{exchange}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Telegram queue size & retries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {"expr": "telegram_queue_size", "legendFormat": "queue", "refId": "A"},
+        {
+          "expr": "sum by (reason) (rate(telegram_retries_total[5m]))",
+          "legendFormat": "retry {{reason}}",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(telegram_dropped_total[5m])",
+          "legendFormat": "dropped",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Paper trading: realized PnL ($USD, cumulative)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "targets": [
+        {
+          "expr": "paper_realized_pnl_usd{market=~\"$market\"}",
+          "legendFormat": "{{market}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}, "overrides": []}
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Paper trading: open positions / closes / suppressions",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 32},
+      "targets": [
+        {
+          "expr": "sum by (market) (paper_open_positions{market=~\"$market\"})",
+          "legendFormat": "open {{market}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (market, outcome) (rate(paper_closed_total{market=~\"$market\"}[5m]))",
+          "legendFormat": "close/s {{market}} {{outcome}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (market) (rate(arb_signals_suppressed_total{market=~\"$market\"}[5m]))",
+          "legendFormat": "supp/s {{market}}",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"colorMode": "value", "graphMode": "area"}
+    }
+  ]
+}

@@ -24,6 +24,7 @@ import logging
 import time
 import uuid
 
+from .. import metrics
 from ..exchanges._common import base_exchange
 from ..settings import Fees
 from ..signals import ArbSignal, InfoEvent, SignalBus
@@ -108,6 +109,8 @@ class SpotPaperTrader:
             reason="instant",
         )
         self._closed_writer.write(trade)
+        metrics.record_paper_closed("spot", "instant")
+        metrics.add_paper_pnl("spot", trade.net_pnl_usd)
         self._bus.emit_info(
             InfoEvent(
                 ts_ms=now_ms,

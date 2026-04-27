@@ -28,6 +28,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
+from . import metrics
 from .signals import emit_info
 
 logger = logging.getLogger("arbitrage.watchdog")
@@ -84,6 +85,7 @@ async def supervise(
                 restarts.popleft()
 
             logger.exception("watchdog(%s): task crashed — restart #%d", name, len(restarts))
+            metrics.record_watchdog_restart(market or "unknown", name)
             emit_info(
                 "watchdog",
                 f"{name}: crashed ({type(exc).__name__}: {exc!s:.200}), "

@@ -23,6 +23,7 @@ import asyncio
 import logging
 import time
 
+from . import metrics
 from .comparator import PricesBook
 from .config import HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS
 from .signals import InfoEvent, get_bus
@@ -94,10 +95,13 @@ async def heartbeat_monitor(
         if not expected_exchanges:
             continue
 
+        market_label = _as_market(label) or label
         for exchange, last in last_seen.items():
             gap_ms = now_ms - last
+            metrics.set_listener_age(market_label, exchange, gap_ms / 1000.0)
             if gap_ms >= silence_threshold_ms and exchange not in silent:
                 silent.add(exchange)
+                metrics.set_listener_silence(market_label, exchange, True)
                 bus.emit_info(
                     InfoEvent(
                         ts_ms=now_ms,
@@ -117,6 +121,7 @@ async def heartbeat_monitor(
                 )
             elif gap_ms < silence_threshold_ms and exchange in silent:
                 silent.discard(exchange)
+                metrics.set_listener_silence(market_label, exchange, False)
                 bus.emit_info(
                     InfoEvent(
                         ts_ms=now_ms,
