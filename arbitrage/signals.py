@@ -95,6 +95,19 @@ class SignalBus:
         self._info_handlers.clear()
 
     def emit_arb(self, signal: ArbSignal) -> None:
+        # Inline counter increment — see arbitrage.metrics docstring
+        # for why we don't make handlers responsible for this.
+        try:
+            from . import metrics
+            metrics.record_arb_signal(
+                signal.market,
+                signal.symbol,
+                signal.buy_ex,
+                signal.sell_ex,
+                signal.net_pct,
+            )
+        except Exception:  # pragma: no cover — never block hot path
+            _logger.exception("metrics: arb counter failed")
         for h in self._arb_handlers:
             try:
                 h(signal)

@@ -129,3 +129,18 @@ persistence:
     root: "data/ticks"
     compress: true                # rotate-and-zstd-compress old daily files
     retention_days: 7             # delete files older than this
+
+# -- Prometheus metrics ---------------------------------------------
+# Exposes /metrics on a HTTP port that Prometheus can scrape (the
+# repo ships a `monitoring/grafana_dashboard.json` and a
+# `monitoring/docker-compose.yml` to get from zero to a dashboard
+# in ~5 minutes — see GUIDE.ru.md).
+#
+# Off by default: enabling on a public-facing host leaks the symbol
+# universe and venue line-up (cardinality of `arb_signals_total`).
+# Bind to 127.0.0.1 unless you've put a firewall in front of the
+# scrape endpoint.
+metrics:
+  enabled: false
+  port: 9090
+  bind_addr: "127.0.0.1"

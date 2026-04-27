@@ -25,6 +25,7 @@ import uvloop
 from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
 from .paper import PaperTradesWriter, PerpPaperTrader, SpotPaperTrader
+from . import metrics
 from .persistence import SignalsWriter, TickWriter, attach_writer as attach_tick_writer
 from .settings import Settings, get_settings, get_telegram_bot_token
 from .signals import InfoEvent, get_bus
@@ -138,6 +139,12 @@ async def _run() -> None:
             tick_writer.open()
             attach_tick_writer(tick_writer)
 
+    if settings.metrics.enabled:
+        metrics.start_metrics_server(
+            port=settings.metrics.port,
+            addr=settings.metrics.bind_addr,
+        )
+
 
     bus.emit_info(
         InfoEvent(
@@ -167,8 +174,17 @@ async def _run() -> None:
     )
 
     def _spot_task(name: str, runner):  # type: ignore[no-untyped-def]
+        # ``name`` is e.g. "binance-spot"; the metrics convention for
+        # spot is the bare exchange ("binance") so the dashboard can
+        # correlate watchdog_restarts_total with listener_last_tick_age_seconds.
+        exchange = name.removesuffix("-spot")
         return asyncio.create_task(
-            supervise(name, lambda: runner(prices_spot, spot_symbols), market="spot"),
+            supervise(
+                name,
+                lambda: runner(prices_spot, spot_symbols),
+                market="spot",
+                exchange=exchange,
+            ),
             name=name,
         )
 
@@ -194,8 +210,15 @@ async def _run() -> None:
     )
 
     def _perp_task(name: str, runner):  # type: ignore[no-untyped-def]
+        # ``name`` is already "binance-perp" — matches the perp
+        # heartbeat exchange-label convention as-is.
         return asyncio.create_task(
-            supervise(name, lambda: runner(prices_perp, perp_symbols), market="perp"),
+            supervise(
+                name,
+                lambda: runner(prices_perp, perp_symbols),
+                market="perp",
+                exchange=name,
+            ),
             name=name,
         )
 

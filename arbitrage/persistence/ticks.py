@@ -129,6 +129,15 @@ def record_tick(tick: Tick, market: Market) -> None:
         w.write(tick, market)
     except Exception:  # pragma: no cover — defensive
         logger.exception("ticks: record_tick failed")
+        return
+    # Lazy-import the metrics surface so tests that don't install
+    # prometheus-client (and the persistence module's other consumers)
+    # don't pay the import cost.
+    try:
+        from .. import metrics
+        metrics.record_tick_persisted(market)
+    except Exception:  # pragma: no cover — never block hot path
+        logger.exception("ticks: metrics counter failed")
 
 
 # -- Writer ---------------------------------------------------------

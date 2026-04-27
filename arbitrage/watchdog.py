@@ -28,6 +28,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
+from . import metrics
 from .signals import emit_info
 
 logger = logging.getLogger("arbitrage.watchdog")
@@ -40,6 +41,7 @@ async def supervise(
     factory: Factory,
     *,
     market: Literal["spot", "perp"] | None = None,
+    exchange: str | None = None,
     max_restarts: int = 20,
     restart_window_s: float = 300.0,
     base_backoff_s: float = 1.0,
@@ -60,6 +62,14 @@ async def supervise(
         Used to tag the emitted info events so the notifier can
         route them to the right Telegram group. ``None`` = fan out
         to every group.
+    exchange
+        The bare/suffixed exchange label that matches the convention
+        used elsewhere in the metrics (``"binance"`` for spot,
+        ``"binance-perp"`` for perp). When unset we fall back to
+        ``name``, which only matches for perp tasks; spot callers
+        should pass this explicitly so the
+        ``watchdog_restarts_total`` series correlates with
+        ``listener_last_tick_age_seconds`` in the dashboard.
     max_restarts / restart_window_s
         If the coroutine fails more than ``max_restarts`` times
         within the last ``restart_window_s`` seconds we give up
@@ -84,6 +94,7 @@ async def supervise(
                 restarts.popleft()
 
             logger.exception("watchdog(%s): task crashed — restart #%d", name, len(restarts))
+            metrics.record_watchdog_restart(market or "unknown", exchange or name)
             emit_info(
                 "watchdog",
                 f"{name}: crashed ({type(exc).__name__}: {exc!s:.200}), "

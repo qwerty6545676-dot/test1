@@ -600,15 +600,100 @@ zstd data/archive/signals-*.jsonl
 # сканер при следующей записи создаст новый файл
 ```
 
-### Когда появится Grafana
+---
 
-Те же данные + гистограммы + графики трендов. Ты откроешь
-`http://vps:3000` в браузере, увидишь:
+## Метрики и мониторинг (Prometheus + Grafana)
 
-- Линейный график "сигналов/час по tier'ам" за последние 24ч
-- Heatmap "какие пары бирж генерируют больше арбитража в какое время"
-- Список "top символов по кумулятивному спреду"
-- Состояние каждого listener'а (жив/мёртв, возраст последнего тика)
+**Статус:** ✅ Реализовано.
+
+### Зачем это нужно
+
+В Telegram ты видишь сообщения по факту. На графике ты видишь
+*тренды и корреляции*: например, "в 14:30 спайк сигналов на ETH +
+одновременно 3 reconnect'а на разных биржах" — значит сетевой
+глитч, не реальный арб. Без графика это сопоставить сложно.
+
+Ещё пара примеров вопросов, на которые отвечает дашборд:
+
+- Какова медиана `net_pct` за неделю? Падает или растёт? (квантили
+  гистограммы `arb_signal_net_pct`)
+- Какая biржа реже всего шлёт тики? (gauge `listener_last_tick_age_seconds`)
+- Telegram queue не забивается? (gauge `telegram_queue_size`)
+- Куда уходит paper-PnL по дням? (gauge `paper_realized_pnl_usd`)
+
+### Что включить в `settings.yaml`
+
+```yaml
+metrics:
+  enabled: true
+  port: 9090
+  bind_addr: "127.0.0.1"   # 0.0.0.0 только если есть firewall
+```
+
+После рестарта `python -m arbitrage.main` поднимет HTTP-эндпоинт
+`http://127.0.0.1:9090/metrics` (proven by `curl`).
+
+### Что замерили
+
+| Метрика | Тип | Что показывает |
+|---|---|---|
+| `arb_signals_total{market,symbol,buy_ex,sell_ex}` | counter | каждый detected арб (до cooldown) |
+| `arb_signal_net_pct{market}` | histogram | распределение спредов в % |
+| `arb_signals_routed_total{market,tier}` | counter | сколько ушло в Telegram (после cooldown + tier) |
+| `arb_signals_suppressed_total{market}` | counter | сколько подавил cooldown |
+| `listener_last_tick_age_seconds{market,exchange}` | gauge | возраст последнего тика |
+| `listener_silence_active{market,exchange}` | gauge | 1 если silence-monitor пометил биржу |
+| `listener_reconnects_total{market,exchange,reason}` | counter | reconnect'ы listener'ов |
+| `watchdog_restarts_total{market,exchange}` | counter | автоматические рестарты после краша |
+| `telegram_queue_size` | gauge | сколько сообщений ждут отправки |
+| `telegram_retries_total{reason}` | counter | retry на 429 / 5xx / timeout |
+| `telegram_dropped_total` | counter | сообщения дропнуты после исчерпания retry-budget |
+| `paper_open_positions{market}` | gauge | открытые paper-сделки |
+| `paper_closed_total{market,outcome}` | counter | закрытые (`converged` / `timeout` / `manual` / `instant`) |
+| `paper_realized_pnl_usd{market}` | gauge | кумулятивный PnL в долларах |
+
+Кардинальность ограничена настройкой: 3 символа × 7 бирж × 7 бирж ×
+2 рынка ≈ 294 серии для самой высоконагруженной метрики
+`arb_signals_total`. Это далеко от лимитов Prometheus (миллион
+серий).
+
+### Запуск стека за 5 минут
+
+В репозитории лежит каталог `monitoring/` с готовыми конфигами:
+
+```
+monitoring/
+├── docker-compose.yml      # Prometheus + Grafana
+├── prometheus.yml          # scrape config (host.docker.internal:9090)
+└── grafana_dashboard.json  # 8 панелей: signals, spreads, latency, PnL, ...
+```
+
+```bash
+# 1. Включи metrics.enabled: true в settings.yaml и рестартни сканер.
+# 2. Подними Prometheus + Grafana в Docker:
+cd monitoring
+docker compose up -d
+
+# 3. Открой http://localhost:3000 (admin / admin)
+#    Dashboards → Import → Upload JSON file → grafana_dashboard.json
+#    Datasource: добавь Prometheus с URL http://prometheus:9090
+```
+
+Через минуту в дашборде "Arbitrage Scanner" появятся все 8
+панелей с живыми данными.
+
+### Аварийный выключатель
+
+Если в проде вдруг разъехалась кардинальность какой-то метрики
+(например, добавил новые символы и забыл) — можно вырубить весь
+сбор без передеплоя:
+
+```bash
+ARB_METRICS_DISABLED=1 python -m arbitrage.main
+```
+
+Все `record_*` хуки становятся no-op, HTTP-эндпоинт продолжает
+работать но возвращает пустой набор серий.
 
 ---
 
@@ -1057,8 +1142,8 @@ paper trading 1-2 недели.
 - **Reconnect-тесты** — state-correctness для Bybit/KuCoin/BingX/MEXC
 - **Paper trading** — spot (инстант) + perp (tracking convergence до
   close_threshold_pct или max_hold_seconds)
-- **Prometheus + Grafana** дашборд (опционально, TG info-топик
-  покрывает большую часть)
+- ✅ **Prometheus + Grafana** дашборд — реализовано, см. раздел
+  "Метрики и мониторинг" ниже
 
 ### 📅 Позже
 

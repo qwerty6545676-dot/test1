@@ -23,6 +23,8 @@ from typing import Any
 
 import aiohttp
 
+from .. import metrics
+
 logger = logging.getLogger("arbitrage.telegram.client")
 
 
@@ -102,6 +104,7 @@ class TelegramClient:
         """Non-blocking. Returns False if dropped (queue full)."""
         try:
             self._queue.put_nowait((chat_id, topic_id, text))
+            metrics.set_telegram_queue_size(self._queue.qsize())
             return True
         except asyncio.QueueFull:
             logger.error(
@@ -109,6 +112,7 @@ class TelegramClient:
                 self._queue.maxsize,
                 chat_id,
             )
+            metrics.record_telegram_dropped()
             return False
 
     def qsize(self) -> int:
@@ -122,6 +126,7 @@ class TelegramClient:
         while True:
             try:
                 chat_id, topic_id, text = await self._queue.get()
+                metrics.set_telegram_queue_size(self._queue.qsize())
             except asyncio.CancelledError:
                 return
             try:
@@ -167,12 +172,14 @@ class TelegramClient:
                             "telegram: 429 from api, sleeping retry_after=%.1fs",
                             retry_after,
                         )
+                        metrics.record_telegram_retry("429")
                         await asyncio.sleep(retry_after)
                         # 429 doesn't count as a "failed attempt" — keep looping.
                         continue
 
                     if 500 <= resp.status < 600:
                         attempt += 1
+                        metrics.record_telegram_retry("5xx")
                         if attempt >= self._max_attempts:
                             body = (await resp.text())[:200]
                             logger.error(
@@ -181,6 +188,7 @@ class TelegramClient:
                                 attempt,
                                 body,
                             )
+                            metrics.record_telegram_dropped()
                             return
                         backoff = min(2.0 ** (attempt - 1), self._max_backoff_s)
                         logger.warning(
@@ -201,14 +209,17 @@ class TelegramClient:
                         {"chat_id": chat_id, "topic": topic_id},
                         body,
                     )
+                    metrics.record_telegram_dropped()
                     return
 
             except asyncio.TimeoutError:
                 attempt += 1
+                metrics.record_telegram_retry("timeout")
                 if attempt >= self._max_attempts:
                     logger.error(
                         "telegram: timeout giving up after %d attempts", attempt
                     )
+                    metrics.record_telegram_dropped()
                     return
                 backoff = min(2.0 ** (attempt - 1), self._max_backoff_s)
                 logger.warning(
@@ -221,12 +232,14 @@ class TelegramClient:
 
             except aiohttp.ClientError as exc:
                 attempt += 1
+                metrics.record_telegram_retry("network")
                 if attempt >= self._max_attempts:
                     logger.error(
                         "telegram: client error giving up after %d attempts: %s",
                         attempt,
                         exc,
                     )
+                    metrics.record_telegram_dropped()
                     return
                 backoff = min(2.0 ** (attempt - 1), self._max_backoff_s)
                 logger.warning(

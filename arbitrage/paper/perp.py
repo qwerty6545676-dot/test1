@@ -47,6 +47,7 @@ import time
 import uuid
 from typing import Callable
 
+from .. import metrics
 from ..comparator import PricesBook
 from ..exchanges._common import base_exchange
 from ..settings import Fees
@@ -155,6 +156,7 @@ class PerpPaperTrader:
         )
         self._open_trades[key] = trade
         self._open_writer.write(trade)
+        metrics.set_paper_open_positions("perp", len(self._open_trades))
         logger.info(
             "perp paper: opened %s long=%s@%.6f short=%s@%.6f spread=%.3f%%",
             signal.symbol, signal.buy_ex, signal.buy_ask,
@@ -305,6 +307,9 @@ class PerpPaperTrader:
         )
         self._closed_writer.write(closed)
         self._open_trades.pop((trade.symbol, trade.buy_ex, trade.sell_ex), None)
+        metrics.record_paper_closed("perp", reason)
+        metrics.add_paper_pnl("perp", closed.net_pnl_usd)
+        metrics.set_paper_open_positions("perp", len(self._open_trades))
 
         self._bus.emit_info(
             InfoEvent(

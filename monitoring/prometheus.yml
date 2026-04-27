@@ -1,0 +1,18 @@
+# Minimal Prometheus config for scraping the arbitrage scanner.
+#
+# The scanner runs on the host and exposes /metrics on 127.0.0.1:9090
+# by default. With docker-compose, ``host.docker.internal`` resolves
+# to the host's loopback so Prometheus (running in a container) can
+# reach the scanner.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+  external_labels:
+    instance: arbitrage-scanner
+
+scrape_configs:
+  - job_name: arbitrage
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:9090"]
