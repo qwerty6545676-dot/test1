@@ -149,11 +149,17 @@ class MexcPerpListener(WSListener):
             logger.exception("mexc-perp: ping loop crashed")
 
 
-async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
+# Same per-connection cap rationale as the spot listener: MEXC
+# documents 30 streams/connection on the contract WebSocket too,
+# so we shard at 25 to leave ack/keepalive headroom.
+_MAX_STREAMS_PER_CONN = 25
+
+
+async def _run_one(prices: PricesBook, symbols: tuple[str, ...], shard: int) -> None:
     attempt = 0
     while True:
         try:
-            logger.info("mexc-perp: connecting")
+            logger.info("mexc-perp[shard=%d]: connecting (%d symbols)", shard, len(symbols))
             transport, _listener = await ws_connect(
                 lambda: MexcPerpListener(prices, symbols),
                 _WS_URL,
@@ -162,9 +168,26 @@ async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
             attempt = 0
             await transport.wait_disconnected()
         except Exception:
-            logger.exception("mexc-perp: connection error")
+            logger.exception("mexc-perp[shard=%d]: connection error", shard)
         await sleep_backoff(attempt, exchange=_EXCHANGE, market="perp")
         attempt += 1
+
+
+async def run_mexc(prices: PricesBook, symbols: tuple[str, ...]) -> None:
+    """Run one or more parallel MEXC contract connections, sharded by symbol."""
+    chunks = _chunk(symbols, _MAX_STREAMS_PER_CONN)
+    if len(chunks) == 1:
+        await _run_one(prices, chunks[0], shard=0)
+        return
+    logger.info("mexc-perp: sharding %d symbols across %d connections",
+                len(symbols), len(chunks))
+    await asyncio.gather(
+        *(_run_one(prices, c, shard=i) for i, c in enumerate(chunks))
+    )
+
+
+def _chunk(symbols: tuple[str, ...], n: int) -> list[tuple[str, ...]]:
+    return [tuple(symbols[i : i + n]) for i in range(0, len(symbols), n)]
 
 
 __all__ = ["MexcPerpListener", "run_mexc"]

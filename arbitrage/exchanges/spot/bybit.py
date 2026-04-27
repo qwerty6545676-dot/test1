@@ -54,6 +54,10 @@ _encoder = msgspec.json.Encoder()
 _PING_PAYLOAD = _encoder.encode({"op": "ping"})
 
 
+def _chunked(seq: list, n: int) -> list[list]:
+    return [seq[i : i + n] for i in range(0, len(seq), n)]
+
+
 class BybitListener(WSListener):
     """picows listener with snapshot+delta state for orderbook.1."""
 
@@ -82,13 +86,14 @@ class BybitListener(WSListener):
         logger.info("bybit: connected, subscribing to %d orderbook.1 streams",
                     len(self._symbols))
 
-        # Subscribe. The server accepts up to 10 args per request; 3
-        # symbols is fine today but split if you ever go wider.
-        sub = {
-            "op": "subscribe",
-            "args": [f"orderbook.1.{s}" for s in self._symbols],
-        }
-        transport.send(WSMsgType.TEXT, _encoder.encode(sub))
+        # Subscribe. Bybit caps a single ``op:subscribe`` request at
+        # 10 args; if you exceed it the server replies with
+        # ``{"success":false,"ret_msg":"args size > 10"}`` and
+        # silently drops the *whole* request. Chunk to be safe.
+        args = [f"orderbook.1.{s}" for s in self._symbols]
+        for chunk in _chunked(args, 10):
+            sub = {"op": "subscribe", "args": chunk}
+            transport.send(WSMsgType.TEXT, _encoder.encode(sub))
 
         # Start the 18s ping loop.
         self._ping_task = asyncio.create_task(self._ping_loop())
