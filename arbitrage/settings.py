@@ -102,6 +102,14 @@ class PaperTradingConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True
     perp: PaperPerpConfig = msgspec.field(default_factory=PaperPerpConfig)
 
 
+class PersistenceConfig(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Where to write the append-only logs of detected signals."""
+
+    enabled: bool = False
+    signals_path: str = "data/signals.jsonl"
+
+
+
 class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Root config object. Immutable once loaded."""
 
@@ -111,6 +119,7 @@ class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     limits: Limits = msgspec.field(default_factory=Limits)
     telegram: TelegramConfig = msgspec.field(default_factory=TelegramConfig)
     paper_trading: PaperTradingConfig = msgspec.field(default_factory=PaperTradingConfig)
+    persistence: PersistenceConfig = msgspec.field(default_factory=PersistenceConfig)
 
     # Where in the filesystem did this come from? Useful for log lines.
     _source_path: ClassVar[str] = ""

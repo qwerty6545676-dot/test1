@@ -12,7 +12,7 @@
 5. [Запуск и остановка](#запуск-и-остановка)
 6. [Как читать логи](#как-читать-логи)
 7. [Telegram-алёрты](#telegram-алёрты)
-8. [Анализ сигналов](#анализ-сигналов) *(планируется)*
+8. [Анализ сигналов](#анализ-сигналов)
 9. [Backtest и replay](#backtest-и-replay) *(планируется)*
 10. [Paper trading](#paper-trading)
 11. [Production-деплой](#production-деплой) *(планируется)*
@@ -521,14 +521,24 @@ Cooldown (по умолчанию **3 минуты**) — по ключу
 
 ## Анализ сигналов
 
-**Статус:** 🚧 Будет с Persistence-PR.
+**Статус:** ✅ Реализовано (signals.jsonl). Ticks.bin + backtest — в
+следующем PR.
 
-Когда будет готово, в `data/signals.jsonl` будут **все** найденные
-арбы в формате JSON-lines (одна запись = одна строка):
+Путь файла настраивается: `persistence.signals_path` в
+`settings.yaml` (дефолт `data/signals.jsonl`). Если
+`persistence.enabled: false` — сигналы только в логах, в файл не
+пишутся.
+
+В `data/signals.jsonl` ложится **каждый** найденный арб в формате
+JSON Lines (одна запись = одна строка, append-only):
 
 ```json
-{"ts":1700123456789,"symbol":"BTCUSDT","market":"spot","buy_ex":"bitget","sell_ex":"mexc","buy_ask":78120.5,"sell_bid":78200.3,"net_pct":8.15,"bid_qty":0.62,"ask_qty":0.45}
+{"ts_ms":1700123456789,"market":"spot","symbol":"BTCUSDT","buy_ex":"bitget","sell_ex":"mexc","buy_ask":78120.5,"sell_bid":78200.3,"net_pct":8.15}
 ```
+
+> Поля `bid_qty` / `ask_qty` появятся в следующем PR вместе с
+> сохранением quantities в `Tick`. Сейчас пишется то, что известно
+> comparator'у.
 
 ### Как анализировать
 
@@ -550,10 +560,11 @@ wc -l data/signals.jsonl
 grep '"symbol":"BTCUSDT"' data/signals.jsonl | wc -l
 ```
 
-**Только сигналы выше 5%:**
+**Только сигналы выше 5% (spot) или 1% (perp):**
 
 ```bash
 jq 'select(.net_pct > 5)' data/signals.jsonl
+jq 'select(.market == "perp" and .net_pct > 1)' data/signals.jsonl
 ```
 
 **Топ-10 спредов за сутки:**
@@ -572,10 +583,22 @@ jq -s '
 ' data/signals.jsonl
 ```
 
-**Распределение сигналов по часам:**
+**Распределение сигналов по часам (UTC):**
 
 ```bash
-jq -r '.ts | . / 1000 | strftime("%H")' data/signals.jsonl | sort | uniq -c
+jq -r '.ts_ms | . / 1000 | strftime("%H")' data/signals.jsonl | sort | uniq -c
+```
+
+### Место на диске
+
+Одна запись = ~150 байт. При 2000 сигналов/сутки файл растёт
+~0.3 МБ/день → ~100 МБ/год. Ротация не нужна, но можно один раз в
+месяц архивировать старые данные:
+
+```bash
+mv data/signals.jsonl data/archive/signals-$(date -u +%Y-%m).jsonl
+zstd data/archive/signals-*.jsonl
+# сканер при следующей записи создаст новый файл
 ```
 
 ### Когда появится Grafana

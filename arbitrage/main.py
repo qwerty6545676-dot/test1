@@ -25,10 +25,12 @@ import uvloop
 from .comparator import PricesBook
 from .heartbeat import heartbeat_monitor
 from .paper import PaperTradesWriter, PerpPaperTrader, SpotPaperTrader
+from .persistence import SignalsWriter
 from .settings import Settings, get_settings, get_telegram_bot_token
 from .signals import InfoEvent, get_bus
 from .telegram_notify import TelegramClient, TelegramNotifier
 from .telegram_notify.log_handler import BusErrorHandler
+from .watchdog import supervise
 
 # Exchange labels the listeners use for ``Tick.exchange``. Passed into
 # the heartbeat monitor so it knows which venues to watch for silence.
@@ -120,6 +122,13 @@ async def _run() -> None:
         )
         paper_perp_trader.attach()
 
+    signals_writer: SignalsWriter | None = None
+    if settings.persistence.enabled:
+        signals_writer = SignalsWriter(settings.persistence.signals_path)
+        signals_writer.open()
+        signals_writer.attach(bus)
+
+
     bus.emit_info(
         InfoEvent(
             ts_ms=_now_ms(),
@@ -147,14 +156,20 @@ async def _run() -> None:
         run_mexc as run_mexc_spot,
     )
 
+    def _spot_task(name: str, runner):  # type: ignore[no-untyped-def]
+        return asyncio.create_task(
+            supervise(name, lambda: runner(prices_spot, spot_symbols), market="spot"),
+            name=name,
+        )
+
     tasks += [
-        asyncio.create_task(run_binance_spot(prices_spot, spot_symbols), name="binance-spot"),
-        asyncio.create_task(run_bybit_spot(prices_spot, spot_symbols), name="bybit-spot"),
-        asyncio.create_task(run_gateio_spot(prices_spot, spot_symbols), name="gateio-spot"),
-        asyncio.create_task(run_bitget_spot(prices_spot, spot_symbols), name="bitget-spot"),
-        asyncio.create_task(run_kucoin_spot(prices_spot, spot_symbols), name="kucoin-spot"),
-        asyncio.create_task(run_bingx_spot(prices_spot, spot_symbols), name="bingx-spot"),
-        asyncio.create_task(run_mexc_spot(prices_spot, spot_symbols), name="mexc-spot"),
+        _spot_task("binance-spot", run_binance_spot),
+        _spot_task("bybit-spot", run_bybit_spot),
+        _spot_task("gateio-spot", run_gateio_spot),
+        _spot_task("bitget-spot", run_bitget_spot),
+        _spot_task("kucoin-spot", run_kucoin_spot),
+        _spot_task("bingx-spot", run_bingx_spot),
+        _spot_task("mexc-spot", run_mexc_spot),
     ]
 
     # ---- Perp listeners (7) --------------------------------------
@@ -168,14 +183,20 @@ async def _run() -> None:
         run_mexc as run_mexc_perp,
     )
 
+    def _perp_task(name: str, runner):  # type: ignore[no-untyped-def]
+        return asyncio.create_task(
+            supervise(name, lambda: runner(prices_perp, perp_symbols), market="perp"),
+            name=name,
+        )
+
     tasks += [
-        asyncio.create_task(run_binance_perp(prices_perp, perp_symbols), name="binance-perp"),
-        asyncio.create_task(run_bybit_perp(prices_perp, perp_symbols), name="bybit-perp"),
-        asyncio.create_task(run_gateio_perp(prices_perp, perp_symbols), name="gateio-perp"),
-        asyncio.create_task(run_bitget_perp(prices_perp, perp_symbols), name="bitget-perp"),
-        asyncio.create_task(run_kucoin_perp(prices_perp, perp_symbols), name="kucoin-perp"),
-        asyncio.create_task(run_bingx_perp(prices_perp, perp_symbols), name="bingx-perp"),
-        asyncio.create_task(run_mexc_perp(prices_perp, perp_symbols), name="mexc-perp"),
+        _perp_task("binance-perp", run_binance_perp),
+        _perp_task("bybit-perp", run_bybit_perp),
+        _perp_task("gateio-perp", run_gateio_perp),
+        _perp_task("bitget-perp", run_bitget_perp),
+        _perp_task("kucoin-perp", run_kucoin_perp),
+        _perp_task("bingx-perp", run_bingx_perp),
+        _perp_task("mexc-perp", run_mexc_perp),
     ]
 
     # ---- Heartbeat monitors (one per book) -----------------------
@@ -243,6 +264,8 @@ async def _run() -> None:
             paper_open_writer.close()
         if paper_closed_writer is not None:
             paper_closed_writer.close()
+        if signals_writer is not None:
+            signals_writer.close()
 
 
 def _now_ms() -> int:
