@@ -32,6 +32,7 @@ import time
 import msgspec
 from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 
+from ...persistence.ticks import record_tick
 from ...comparator import PricesBook, check_and_signal_perp
 from ...normalizer import Tick, validate_tick
 from .._common import sleep_backoff, to_native
@@ -130,6 +131,7 @@ class MexcPerpListener(WSListener):
             book = {}
             self._prices[canonical] = book
         book[_EXCHANGE] = tick
+        record_tick(tick, "perp")
 
         check_and_signal_perp(self._prices, canonical)
 

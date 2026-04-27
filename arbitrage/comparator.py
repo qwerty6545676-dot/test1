@@ -120,6 +120,7 @@ def check_and_signal(
     min_pct: float | None = None,
     max_age_ms: int | None = None,
     market: str = "spot",
+    now_ms: int | None = None,
 ) -> None:
     """Called from the WS listener after every price update.
 
@@ -127,12 +128,17 @@ def check_and_signal(
     configured threshold, emits a log line. The ``market`` label only
     appears in the log prefix (``ARB [spot]`` vs ``ARB [perp]``) so
     operators can tail each stream separately.
+
+    ``now_ms`` lets the replay harness inject the recorded timestamp
+    so staleness checks operate against the historical clock instead
+    of wall time.
     """
     book = prices.get(symbol)
     if book is None or len(book) < 2:
         return
 
-    now_ms = int(time.time() * 1000)
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
     hit = find_arbitrage(
         book, symbol, now_ms, fees=fees, min_pct=min_pct, max_age_ms=max_age_ms
     )
@@ -168,7 +174,9 @@ def check_and_signal(
     )
 
 
-def check_and_signal_spot(prices: PricesBook, symbol: str) -> None:
+def check_and_signal_spot(
+    prices: PricesBook, symbol: str, *, now_ms: int | None = None
+) -> None:
     """Spot-market variant: uses `FEES` / `MIN_PROFIT_PCT` from config."""
     check_and_signal(
         prices,
@@ -177,10 +185,13 @@ def check_and_signal_spot(prices: PricesBook, symbol: str) -> None:
         min_pct=MIN_PROFIT_PCT,
         max_age_ms=MAX_AGE_MS,
         market="spot",
+        now_ms=now_ms,
     )
 
 
-def check_and_signal_perp(prices: PricesBook, symbol: str) -> None:
+def check_and_signal_perp(
+    prices: PricesBook, symbol: str, *, now_ms: int | None = None
+) -> None:
     """Perp-market variant: uses `FEES_PERP` / `MIN_PROFIT_PCT_PERP`."""
     check_and_signal(
         prices,
@@ -189,6 +200,7 @@ def check_and_signal_perp(prices: PricesBook, symbol: str) -> None:
         min_pct=MIN_PROFIT_PCT_PERP,
         max_age_ms=MAX_AGE_MS,
         market="perp",
+        now_ms=now_ms,
     )
 
 
