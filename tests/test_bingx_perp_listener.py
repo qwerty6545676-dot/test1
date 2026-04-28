@@ -65,7 +65,26 @@ def test_update_populates_prices():
     assert tick.ts_exchange == 1776941439179
 
 
-def test_server_ping_triggers_pong():
+def test_server_binary_ping_triggers_binary_pong():
+    """Perp endpoint sends literal gzipped ``b"Ping"`` every ~5s and
+    drops the connection after ~30s if the client doesn't reply with
+    ``b"Pong"``. Regression test for the ~32s reconnect loop observed
+    when the listener only handled the JSON ping shape from spot.
+    """
+    listener, prices = _listener()
+    transport = _FakeTransport()
+    listener.on_ws_frame(
+        transport=transport,
+        frame=_FakeFrame(gzip.compress(b"Ping")),
+    )
+    assert prices == {}
+    assert transport.sent == [(1, b"Pong")]
+
+
+def test_server_json_ping_fallback_triggers_json_pong():
+    """Defensive fallback: if BingX ever unifies perp keepalive with
+    the spot JSON shape, the listener should still respond correctly.
+    """
     listener, prices = _listener()
     transport = _FakeTransport()
     msg = {"ping": "abc123", "time": "2026-04-23T15:14:35.515+0800"}

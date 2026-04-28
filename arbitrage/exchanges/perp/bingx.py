@@ -1,16 +1,23 @@
 """BingX swap (perp) ``bookTicker`` listener (picows + gzip).
 
-Mirror of :mod:`arbitrage.exchanges.spot.bingx`. Differences from the
-spot listener are confined to the endpoint path and the exchange
-label:
+Endpoint: ``wss://open-api-swap.bingx.com/swap-market``. Exchange
+label: ``bingx-perp``.
 
-- URL: ``wss://open-api-swap.bingx.com/swap-market`` (spot uses
-  ``/market`` under a different host).
-- Exchange label: ``bingx-perp``.
+The frame format mirrors :mod:`arbitrage.exchanges.spot.bingx` —
+gzipped payloads, per-stream ``reqType:sub`` subscriptions,
+``BTC-USDT`` symbol convention — but **the keepalive protocol is
+different**:
 
-Gzip framing, per-stream subscribe (``reqType: sub``), ``BTC-USDT``
-symbol convention, ``{ping: <uuid>, time: ...}`` → ``{pong: uuid, …}``
-keepalive and the reconnect loop are identical.
+* Spot WS sends a JSON ping (``{"ping":"<uuid>","time":"..."}``)
+  and expects a JSON pong with the same uuid.
+* Perp WS sends the **literal binary string** ``b"Ping"`` (gzipped)
+  every ~5s and expects ``b"Pong"`` (plain bytes) in reply. If the
+  client doesn't respond the connection is closed after ~30s,
+  which manifested as a reconnect every ~32s in production.
+
+The listener handles the literal-binary form first and keeps the
+JSON-ping branch as a defensive fallback in case BingX ever unifies
+the two endpoints.
 """
 
 from __future__ import annotations
@@ -72,6 +79,14 @@ class BingxPerpListener(WSListener):
         except (OSError, EOFError):
             return
 
+        # Server keepalive — perp endpoint sends the literal bytes
+        # ``b"Ping"`` (gzipped). Reply with ``b"Pong"`` immediately,
+        # before attempting JSON decode, otherwise the connection is
+        # dropped after ~30s.
+        if decompressed == b"Ping":
+            transport.send(WSMsgType.TEXT, b"Pong")
+            return
+
         try:
             msg = _decoder.decode(decompressed)
         except msgspec.DecodeError:
@@ -79,7 +94,8 @@ class BingxPerpListener(WSListener):
         if not isinstance(msg, dict):
             return
 
-        # Server keepalive — echo pong with same id.
+        # Defensive fallback: handle a JSON ping the same way the spot
+        # endpoint does, in case BingX ever unifies the two protocols.
         ping_id = msg.get("ping")
         if ping_id is not None:
             pong = {"pong": ping_id, "time": msg.get("time")}
