@@ -62,6 +62,30 @@ class Symbols(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     perp: list[str]
 
 
+class Coverage(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Per-symbol allowed-venue map.
+
+    Maps each symbol to the list of venue labels that actually push
+    ``bookTicker`` for it. The discovery script (``scripts/
+    discover_universe.py``) writes this map after a hybrid REST+WS
+    probe so we never subscribe a venue to a pair it doesn't actually
+    stream — that was the root cause of the heartbeat-eviction log
+    spam (REST listed the pair, WS sent nothing, evictor logged a WARN
+    every second).
+
+    Both fields default to empty: when a market's coverage map is
+    empty, every venue subscribes to every symbol in
+    ``symbols.spot`` / ``symbols.perp`` (legacy behaviour).
+
+    Venue labels follow the same convention as ``Tick.exchange``:
+    bare names (``"binance"``, ``"bybit"``, ...) for spot and the
+    ``"-perp"`` suffixed variants for perp.
+    """
+
+    spot: dict[str, list[str]] = msgspec.field(default_factory=dict)
+    perp: dict[str, list[str]] = msgspec.field(default_factory=dict)
+
+
 class Fees(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     spot: dict[str, float]
     perp: dict[str, float]
@@ -143,6 +167,7 @@ class Settings(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     symbols: Symbols
     filters: FilterSet
     fees: Fees
+    coverage: Coverage = msgspec.field(default_factory=Coverage)
     limits: Limits = msgspec.field(default_factory=Limits)
     telegram: TelegramConfig = msgspec.field(default_factory=TelegramConfig)
     paper_trading: PaperTradingConfig = msgspec.field(default_factory=PaperTradingConfig)
@@ -213,6 +238,28 @@ def _validate(s: Settings) -> None:
                 raise ValueError(
                     f"filters.{name}.tiers.{tier_name}: "
                     f"from_pct ({tier.from_pct}) must be < to_pct ({tier.to_pct})"
+                )
+    # Coverage sanity: each symbol must list at least 2 venues
+    # (arbitrage requires comparing across venues), and every entry
+    # must reference a known venue label. Catches typos like
+    # ``binance-spot`` or empty venue lists in the YAML.
+    _spot_venues = {"binance", "bybit", "gateio", "bitget", "kucoin", "bingx", "mexc"}
+    _perp_venues = {f"{v}-perp" for v in _spot_venues}
+    for market_name, cov_map, allowed in (
+        ("spot", s.coverage.spot, _spot_venues),
+        ("perp", s.coverage.perp, _perp_venues),
+    ):
+        for sym, venues in cov_map.items():
+            if len(venues) < 2:
+                raise ValueError(
+                    f"coverage.{market_name}.{sym}: needs >= 2 venues for "
+                    f"arbitrage, got {len(venues)} ({venues!r})"
+                )
+            unknown = set(venues) - allowed
+            if unknown:
+                raise ValueError(
+                    f"coverage.{market_name}.{sym}: unknown venue(s) {sorted(unknown)!r}; "
+                    f"expected subset of {sorted(allowed)!r}"
                 )
     if s.limits.max_age_ms <= 0:
         raise ValueError("limits.max_age_ms must be > 0")

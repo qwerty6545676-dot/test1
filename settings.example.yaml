@@ -275,6 +275,35 @@ fees:
     bingx:   0.0005
     mexc:    0.0002
 
+# -- Per-venue coverage map (optional) ------------------------------
+# When non-empty, each listener subscribes only to the symbols whose
+# venue list explicitly names it. This is the output of
+# ``python scripts/discover_universe.py`` — a hybrid REST + WS-verify
+# discovery that drops (venue, symbol) pairs the venue lists in REST
+# but never streams via WS bookTicker. That mismatch was the root
+# cause of the heartbeat-evict log spam at universe-100 (~66k WARN /
+# 30 min); with a populated coverage map those subscriptions never
+# happen in the first place.
+#
+# Schema:
+#   coverage:
+#     spot:
+#       BTCUSDT: [binance, bybit, gateio, bitget, kucoin, bingx, mexc]
+#       SNEKUSDT: [bybit, kucoin]   # MEXC dropped — REST listed but WS silent
+#       ...
+#     perp:
+#       BTCUSDT: [binance-perp, bybit-perp, gateio-perp, ...]
+#       ...
+#
+# Each entry must list >= 2 venues (arbitrage requires a comparison).
+# Spot venues are bare names, perp venues use the ``-perp`` suffix.
+# Leave both maps empty (or omit the section entirely) to fall back
+# to the legacy behaviour where every venue subscribes to every symbol
+# in ``symbols.spot`` / ``symbols.perp``.
+coverage:
+  spot: {}
+  perp: {}
+
 # -- Tick freshness & reconnect behaviour ---------------------------
 limits:
   max_age_ms: 500                  # stale ticks ignored by comparator

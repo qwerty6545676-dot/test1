@@ -84,10 +84,33 @@ async def _setup_telegram(
     return client, notifier
 
 
+def _venue_symbols(
+    fallback_symbols: tuple[str, ...],
+    coverage_map: dict[str, list[str]],
+    venue: str,
+) -> tuple[str, ...]:
+    """Return the symbols to subscribe on ``venue`` for one market.
+
+    If ``coverage_map`` is non-empty, treat it as the source of truth:
+    only the symbols that explicitly list ``venue`` are returned.
+    This is what stops MEXC / KuCoin / BingX from subscribing to
+    pairs they list in REST but never push via WS — the root cause of
+    heartbeat-evict log spam at universe-100.
+
+    If ``coverage_map`` is empty (legacy behaviour), every venue
+    gets the full ``fallback_symbols`` list.
+    """
+    if not coverage_map:
+        return fallback_symbols
+    return tuple(s for s, venues in coverage_map.items() if venue in venues)
+
+
 async def _run() -> None:
     settings = get_settings()
     spot_symbols = tuple(settings.symbols.spot)
     perp_symbols = tuple(settings.symbols.perp)
+    spot_coverage = dict(settings.coverage.spot)
+    perp_coverage = dict(settings.coverage.perp)
 
     prices_spot: PricesBook = {}
     prices_perp: PricesBook = {}
@@ -178,10 +201,20 @@ async def _run() -> None:
         # spot is the bare exchange ("binance") so the dashboard can
         # correlate watchdog_restarts_total with listener_last_tick_age_seconds.
         exchange = name.removesuffix("-spot")
+        venue_syms = _venue_symbols(spot_symbols, spot_coverage, exchange)
+        if not venue_syms:
+            # Coverage map declared this venue but with no symbols, or
+            # the operator is intentionally turning a venue off.
+            # Don't open a WS connection that would just sit idle.
+            logging.getLogger("arbitrage.main").info(
+                "spot: %s has 0 symbols in coverage; skipping listener",
+                name,
+            )
+            return None
         return asyncio.create_task(
             supervise(
                 name,
-                lambda: runner(prices_spot, spot_symbols),
+                lambda: runner(prices_spot, venue_syms),
                 market="spot",
                 exchange=exchange,
             ),
@@ -189,13 +222,15 @@ async def _run() -> None:
         )
 
     tasks += [
-        _spot_task("binance-spot", run_binance_spot),
-        _spot_task("bybit-spot", run_bybit_spot),
-        _spot_task("gateio-spot", run_gateio_spot),
-        _spot_task("bitget-spot", run_bitget_spot),
-        _spot_task("kucoin-spot", run_kucoin_spot),
-        _spot_task("bingx-spot", run_bingx_spot),
-        _spot_task("mexc-spot", run_mexc_spot),
+        t for t in (
+            _spot_task("binance-spot", run_binance_spot),
+            _spot_task("bybit-spot", run_bybit_spot),
+            _spot_task("gateio-spot", run_gateio_spot),
+            _spot_task("bitget-spot", run_bitget_spot),
+            _spot_task("kucoin-spot", run_kucoin_spot),
+            _spot_task("bingx-spot", run_bingx_spot),
+            _spot_task("mexc-spot", run_mexc_spot),
+        ) if t is not None
     ]
 
     # ---- Perp listeners (7) --------------------------------------
@@ -212,10 +247,17 @@ async def _run() -> None:
     def _perp_task(name: str, runner):  # type: ignore[no-untyped-def]
         # ``name`` is already "binance-perp" — matches the perp
         # heartbeat exchange-label convention as-is.
+        venue_syms = _venue_symbols(perp_symbols, perp_coverage, name)
+        if not venue_syms:
+            logging.getLogger("arbitrage.main").info(
+                "perp: %s has 0 symbols in coverage; skipping listener",
+                name,
+            )
+            return None
         return asyncio.create_task(
             supervise(
                 name,
-                lambda: runner(prices_perp, perp_symbols),
+                lambda: runner(prices_perp, venue_syms),
                 market="perp",
                 exchange=name,
             ),
@@ -223,22 +265,35 @@ async def _run() -> None:
         )
 
     tasks += [
-        _perp_task("binance-perp", run_binance_perp),
-        _perp_task("bybit-perp", run_bybit_perp),
-        _perp_task("gateio-perp", run_gateio_perp),
-        _perp_task("bitget-perp", run_bitget_perp),
-        _perp_task("kucoin-perp", run_kucoin_perp),
-        _perp_task("bingx-perp", run_bingx_perp),
-        _perp_task("mexc-perp", run_mexc_perp),
+        t for t in (
+            _perp_task("binance-perp", run_binance_perp),
+            _perp_task("bybit-perp", run_bybit_perp),
+            _perp_task("gateio-perp", run_gateio_perp),
+            _perp_task("bitget-perp", run_bitget_perp),
+            _perp_task("kucoin-perp", run_kucoin_perp),
+            _perp_task("bingx-perp", run_bingx_perp),
+            _perp_task("mexc-perp", run_mexc_perp),
+        ) if t is not None
     ]
 
     # ---- Heartbeat monitors (one per book) -----------------------
+    # Only track silence for venues we actually spawned a listener for.
+    # Without this, a venue that has 0 symbols in coverage would be
+    # flagged silent forever (we didn't connect, no ticks ever arrive).
+    spot_active = tuple(
+        v for v in _SPOT_EXCHANGES
+        if _venue_symbols(spot_symbols, spot_coverage, v)
+    )
+    perp_active = tuple(
+        v for v in _PERP_EXCHANGES
+        if _venue_symbols(perp_symbols, perp_coverage, v)
+    )
     tasks += [
         asyncio.create_task(
             heartbeat_monitor(
                 prices_spot,
                 label="spot",
-                expected_exchanges=_SPOT_EXCHANGES,
+                expected_exchanges=spot_active,
             ),
             name="heartbeat-spot",
         ),
@@ -246,7 +301,7 @@ async def _run() -> None:
             heartbeat_monitor(
                 prices_perp,
                 label="perp",
-                expected_exchanges=_PERP_EXCHANGES,
+                expected_exchanges=perp_active,
             ),
             name="heartbeat-perp",
         ),
