@@ -103,6 +103,30 @@ def test_mexc_perp_filters_non_zero_state():
                                        ("OLDUSDT", 10.0)]
 
 
+def test_mexc_perp_tolerates_non_numeric_state():
+    """Defensive: if MEXC ever returns a string ``state`` (or any
+    other unexpected shape) the extractor must not blow up — the rest
+    of MEXC's payload would otherwise be lost via the outer
+    ``_fetch`` exception catch. The float coercion in ``_f`` returns
+    0.0 for unparseable input, which evaluates as ``state == 0`` and
+    keeps the row (treated as enabled). That's safer than dropping
+    everything when the API shape mutates.
+    """
+    payload = {
+        "data": [
+            {"symbol": "BTC_USDT", "state": "weird", "amount24": "100"},
+            {"symbol": "ETH_USDT", "state": "0", "amount24": "50"},  # numeric str
+            {"symbol": "DEAD_USDT", "state": "1", "amount24": "5"},  # delisted as str
+        ]
+    }
+    rows = _du._mexc_perp(payload)
+    syms = [s for s, _ in rows]
+    # Unparseable -> kept (defensive); "0" -> kept; "1" -> dropped.
+    assert "BTCUSDT" in syms
+    assert "ETHUSDT" in syms
+    assert "DEADUSDT" not in syms
+
+
 def test_gateio_perp_skips_in_delisting():
     payload = [
         {"contract": "BTC_USDT", "volume_24h_settle": "100"},

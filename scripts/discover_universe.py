@@ -247,9 +247,13 @@ def _mexc_perp(payload: dict) -> list[tuple[str, float]]:
         if not sym.endswith("_USDT"):
             continue
         # MEXC contract /ticker includes ``state`` (0=enabled,
-        # 1=delisted, ...). Drop anything but enabled.
+        # 1=delisted, ...). Drop anything but enabled. Use ``_f`` so
+        # an unexpected non-numeric value (string, None, ...) doesn't
+        # crash the whole extractor and zero out MEXC perp coverage —
+        # matches the defensive contract documented at the top of
+        # this file.
         state = r.get("state")
-        if state is not None and int(state) != 0:
+        if state is not None and _f(state) != 0:
             continue
         out.append((sym.replace("_", ""), _f(r.get("amount24"))))
     return out
