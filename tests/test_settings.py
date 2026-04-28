@@ -169,6 +169,75 @@ def test_rejects_unknown_field(tmp_path: Path):
         settings_mod.load_settings(p)
 
 
+# ---------------------------------------------------------------------------
+# Coverage map
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_defaults_empty(tmp_path: Path):
+    """Without a ``coverage:`` section, both maps are empty — that's
+    the legacy fallback path: every venue subscribes to every symbol.
+    """
+    p = _write(tmp_path, _VALID_YAML)
+    s = settings_mod.load_settings(p)
+    assert s.coverage.spot == {}
+    assert s.coverage.perp == {}
+
+
+def test_coverage_loads_per_symbol_venue_lists(tmp_path: Path):
+    yaml = _VALID_YAML + """
+coverage:
+  spot:
+    BTCUSDT: [binance, bybit, mexc]
+    ETHUSDT: [binance, bybit]
+  perp:
+    BTCUSDT: [binance-perp, bybit-perp, kucoin-perp]
+"""
+    p = _write(tmp_path, yaml)
+    s = settings_mod.load_settings(p)
+    assert s.coverage.spot["BTCUSDT"] == ["binance", "bybit", "mexc"]
+    assert s.coverage.spot["ETHUSDT"] == ["binance", "bybit"]
+    assert s.coverage.perp["BTCUSDT"] == ["binance-perp", "bybit-perp", "kucoin-perp"]
+
+
+def test_coverage_rejects_single_venue_entry(tmp_path: Path):
+    """Arbitrage requires >= 2 venues; a 1-venue entry is a useless
+    subscription and probably a discovery bug — fail loudly."""
+    yaml = _VALID_YAML + """
+coverage:
+  spot:
+    BTCUSDT: [binance]
+"""
+    p = _write(tmp_path, yaml)
+    with pytest.raises(ValueError, match=r"needs >= 2 venues"):
+        settings_mod.load_settings(p)
+
+
+def test_coverage_rejects_unknown_venue(tmp_path: Path):
+    """Typos like ``binance-spot`` or wrong-market suffix must fail."""
+    yaml = _VALID_YAML + """
+coverage:
+  spot:
+    BTCUSDT: [binance, binance-perp]
+"""
+    p = _write(tmp_path, yaml)
+    with pytest.raises(ValueError, match=r"unknown venue"):
+        settings_mod.load_settings(p)
+
+
+def test_coverage_perp_rejects_bare_venue_name(tmp_path: Path):
+    """Perp entries must use the ``-perp`` suffix to match the
+    ``Tick.exchange`` convention used by the listeners."""
+    yaml = _VALID_YAML + """
+coverage:
+  perp:
+    BTCUSDT: [binance, bybit]
+"""
+    p = _write(tmp_path, yaml)
+    with pytest.raises(ValueError, match=r"unknown venue"):
+        settings_mod.load_settings(p)
+
+
 def test_rejects_missing_required_section(tmp_path: Path):
     yaml = """
     # Missing `fees`.
