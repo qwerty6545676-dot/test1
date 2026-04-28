@@ -1,16 +1,18 @@
 """BingX swap (perp) ``bookTicker`` listener (picows + gzip).
 
-Mirror of :mod:`arbitrage.exchanges.spot.bingx`. Differences from the
-spot listener are confined to the endpoint path and the exchange
-label:
+Differences from :mod:`arbitrage.exchanges.spot.bingx`:
 
 - URL: ``wss://open-api-swap.bingx.com/swap-market`` (spot uses
   ``/market`` under a different host).
 - Exchange label: ``bingx-perp``.
-
-Gzip framing, per-stream subscribe (``reqType: sub``), ``BTC-USDT``
-symbol convention, ``{ping: <uuid>, time: ...}`` → ``{pong: uuid, …}``
-keepalive and the reconnect loop are identical.
+- **Keepalive protocol is different from spot.** Verified live
+  against ``open-api-swap.bingx.com``: the server pings with the
+  literal 4-byte BINARY frame ``b"Ping"`` (gzipped) every 5 s and
+  drops the connection after ~30 s without a matching ``b"Pong"``
+  reply. The spot WS uses JSON ``{"ping": "<uuid>"}`` /
+  ``{"pong": "<uuid>"}`` instead — same code path won't work for
+  both. We handle the literal form here; the JSON form stays
+  defensively as a fallback in case BingX flips it back.
 """
 
 from __future__ import annotations
@@ -72,6 +74,16 @@ class BingxPerpListener(WSListener):
         except (OSError, EOFError):
             return
 
+        # Literal-text keepalive: BingX swap-market sends ``b"Ping"``
+        # every ~5 s and tears the connection down after ~30 s without
+        # a ``b"Pong"`` reply. The spot WS does *not* use this form
+        # (it sends JSON ``{"ping": "<uuid>", ...}``); see the spot
+        # listener for the JSON variant. Cheap byte-equality check
+        # before JSON decode.
+        if decompressed == b"Ping":
+            transport.send(WSMsgType.TEXT, b"Pong")
+            return
+
         try:
             msg = _decoder.decode(decompressed)
         except msgspec.DecodeError:
@@ -79,7 +91,9 @@ class BingxPerpListener(WSListener):
         if not isinstance(msg, dict):
             return
 
-        # Server keepalive — echo pong with same id.
+        # Defensive fallback: if BingX ever ships the JSON-style
+        # keepalive on the swap WS too, handle it the same way the
+        # spot listener does.
         ping_id = msg.get("ping")
         if ping_id is not None:
             pong = {"pong": ping_id, "time": msg.get("time")}
