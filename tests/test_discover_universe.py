@@ -39,6 +39,30 @@ def _load_module():
 _du = _load_module()
 
 
+# ---- Defensive payload guards -------------------------------------
+
+
+def test_binance_spot_handles_geoblock_dict_payload():
+    """When Binance returns 451 from a restricted location, the body
+    is a single error dict (not a list of tickers). The extractor
+    must return ``[]`` instead of crashing with ``'str' object has no
+    attribute 'get'`` — otherwise ``_fetch``'s outer except swallows
+    every other venue's data alongside it.
+    """
+    payload = {
+        "code": 0,
+        "msg": "Service unavailable from a restricted location ...",
+    }
+    assert _du._binance_spot(payload) == []
+    assert _du._binance_perp(payload) == []
+
+
+def test_binance_spot_skips_non_dict_rows():
+    """Mixed payloads (list with stray strings) shouldn't crash either."""
+    payload = ["error string", {"symbol": "BTCUSDT", "quoteVolume": "100"}]
+    assert _du._binance_spot(payload) == [("BTCUSDT", 100.0)]
+
+
 # ---- Status filter: spot ------------------------------------------
 
 
