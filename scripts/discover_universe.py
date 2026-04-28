@@ -50,9 +50,19 @@ import json
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import aiohttp
+
+# When invoked as ``python scripts/discover_universe.py``, Python sets
+# ``sys.path[0]`` to the script's directory (``scripts/``), not the
+# repo root — so the Tier-3 WS-verify phase can't import
+# ``arbitrage.exchanges``. Inject the repo root explicitly so the
+# script works the same whether it's run as a module or a file.
+_repo_root = str(Path(__file__).resolve().parent.parent)
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 
 # ---- Exchange spec ------------------------------------------------
@@ -84,8 +94,16 @@ def _binance_spot(payload: list[dict]) -> list[tuple[str, float]]:
     # Binance /ticker/24hr does not expose status; we use the volume
     # filter (vol > 0) downstream as a proxy. ``count`` (number of
     # 24h trades) further down the pipeline catches dead pairs.
+    # Binance returns a dict (``{"code": 0, "msg": "..."}``) when a
+    # request comes from a restricted location (HTTP 451) — guard
+    # against that so the extractor doesn't crash and zero out
+    # everything else.
+    if not isinstance(payload, list):
+        return []
     out: list[tuple[str, float]] = []
     for row in payload:
+        if not isinstance(row, dict):
+            continue
         sym = row.get("symbol", "")
         if not sym.endswith("USDT"):
             continue
@@ -163,8 +181,13 @@ def _mexc_spot(payload: list[dict]) -> list[tuple[str, float]]:
 # ---- Perp extractors ----------------------------------------------
 
 def _binance_perp(payload: list[dict]) -> list[tuple[str, float]]:
+    # See ``_binance_spot`` — same defensive shape check.
+    if not isinstance(payload, list):
+        return []
     out: list[tuple[str, float]] = []
     for row in payload:
+        if not isinstance(row, dict):
+            continue
         sym = row.get("symbol", "")
         if not sym.endswith("USDT"):
             continue
